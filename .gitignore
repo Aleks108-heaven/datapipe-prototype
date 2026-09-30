@@ -6,3 +6,4 @@ venv/
 work/
 desktop.ini
 *.egg-info/
+*.lock

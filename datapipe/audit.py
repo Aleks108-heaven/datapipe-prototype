@@ -24,8 +24,10 @@ GENESIS = "0" * 64
 
 
 @contextlib.contextmanager
-def _exclusive(fh):
-    """Exclusive lock on an open file, held across threads and processes (flock on POSIX, byte-range lock on Windows)."""
+def _exclusive(fh, path):
+    """Exclusive lock held across threads and processes: flock on the log itself (POSIX), or a byte-range lock on a
+    separate `<log>.lock` file (Windows). Windows byte-range locks are mandatory, so locking the log itself would make
+    every concurrent reader of the log fail with PermissionError; nobody ever reads the lock file."""
     if fcntl is not None:
         fcntl.flock(fh, fcntl.LOCK_EX)
         try:
@@ -33,19 +35,20 @@ def _exclusive(fh):
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
         return
-    fd = fh.fileno()
-    fh.seek(0)
-    while True:                          # LK_NBLCK + sleep: LK_LOCK gives up after ~10 s
+    with open(str(path) + ".lock", "a+b") as lock:
+        fd = lock.fileno()
+        while True:                      # LK_NBLCK + sleep: LK_LOCK gives up after ~10 s
+            os.lseek(fd, 0, os.SEEK_SET)
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                break
+            except OSError:
+                time.sleep(0.02)
         try:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-            break
-        except OSError:
-            time.sleep(0.02)
-    try:
-        yield
-    finally:
-        fh.seek(0)
-        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            yield
+        finally:
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 
 def _canon(obj):
@@ -73,7 +76,7 @@ class AuditLog:
         """Append one record. `guard(records)` runs while the file lock is held (raise to refuse), which makes
         check-then-append decisions atomic across threads and processes."""
         with open(self.path, "a+", encoding="utf-8") as fh:
-            with _exclusive(fh):
+            with _exclusive(fh, self.path):
                 fh.seek(0)
                 last = None
                 lines = []
