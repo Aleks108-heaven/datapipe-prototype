@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # browser tests are skipped without Playwright + Chromium
+    python -m pytest                                    # 281 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -113,7 +113,7 @@ When the provider missed a column or picked the wrong one, the reviewer can map 
 - Semantics (is `amount` gross or net?) must be encoded by a domain owner in the schema/metrics; the tool checks form, not meaning.
 - One input per run; no cross-file joins. Dates only (no timestamps/time zones). LLM layer covers schema mapping only (not analysis).
 - Schema regexes are trusted input (ReDoS possible from a hostile schema author). DuckDB memory is not capped.
-- Platforms: the audit-log lock uses `flock` on POSIX and a byte-range lock (`msvcrt`) on Windows (stress-tested with 8 concurrent writers). On Windows the test suite and the browser UI were run with a stand-in for DuckDB because its native library was blocked by an application-control policy, so the analysis-engine and full-pipeline tests have **not** been run on Windows or seen passing there. The Mac/Linux status is untested by the author of these changes.
+- Platforms: CI (`.github/workflows/ci.yml`) runs the full suite, browser tests included, on Ubuntu, macOS and Windows with Python 3.10 and 3.13; all 281 tests passed on all six combinations in two consecutive runs. The audit-log lock uses `flock` on POSIX and a byte-range lock on a separate `.lock` file on Windows. On some locked-down Windows machines DuckDB's native library can be blocked by application-control policies (seen on the author's PC; CI is unaffected).
 
 ## Project status
 
@@ -125,16 +125,18 @@ When the provider missed a column or picked the wrong one, the reviewer can map 
 - **Bugs found and fixed by running the browser tests:** focus was pulled away from a field the reviewer was typing in; the action bar was rebuilt on every redraw and could swallow keystrokes; the HTTP server could reset connections on Windows when it refused a POST before reading its body (it now reads the bounded body first and has a 15 s socket timeout).
 - **Design tokens:** radius, tap-target, spacing and type-size values are tokens in the page CSS.
 - **Tests:** symlink cases skip their symlink part where the OS forbids symlinks (Windows without Developer Mode); browser tests updated for the merged layout. Last run on Windows: 236 passed, 45 failed - all 45 because the DuckDB stand-in cannot run queries, none for another reason.
-- **README corrections:** removed the unverified test count and the contradiction about manual remapping.
+- **README corrections:** removed the contradiction about manual remapping.
+- **Continuous integration:** GitHub Actions runs the suite on Linux, macOS and Windows (Python 3.10 and 3.13). It found two real bugs that local runs had missed:
+  - SQL-dump ingestion failed on Python 3.10, because `set_authorizer(None)` only clears the authorizer from 3.11 (on 3.10 it denies everything). It now installs an allow-all callback.
+  - The first Windows audit lock blocked concurrent readers of the log (Windows byte-range locks are mandatory) and made a concurrency test fail intermittently. The lock now lives on a separate `.lock` file.
 
 ### Should do next
 
-1. **Run the DuckDB-backed tests for real** (allow the DuckDB DLL in the Windows policy, or use macOS/Linux/WSL) and confirm the full suite is green; then record the real test count here.
-2. **Explain the evidence chips** in the UI ("Distinct" especially) with a one-line legend and use one notation for all of them (percent vs 0-1).
-3. **Warn before losing decisions:** include/exclude choices and manual mappings live only in the page; navigating away or reloading drops them silently.
-4. **Phone layout:** the approve/reject bar sits at the very end of the page; consider a compact sticky status or a jump link.
-5. **Design-token follow-through:** spacing still has many literal values; button heights and focus styles could come from tokens too. Check dark mode visually on the merged cards.
-6. **Accessibility verification with a real screen reader** (NVDA/VoiceOver); so far only automated browser tests and code review.
-7. **Real authentication for reviewers** (today the name is self-asserted) and storing the audit head hash outside the log.
-8. **Platform hardening:** run and fix on macOS and Linux CI; add a CI workflow (pytest + Playwright) so regressions like the ones above are caught automatically.
-9. Items from "Known limitations" above (big files, SQL dump dialects, timestamps/time zones, analysis by LLM out of scope).
+1. **Explain the evidence chips** in the UI ("Distinct" especially) with a one-line legend and use one notation for all of them (percent vs 0-1).
+2. **Warn before losing decisions:** include/exclude choices and manual mappings live only in the page; navigating away or reloading drops them silently.
+3. **Phone layout:** the approve/reject bar sits at the very end of the page; consider a compact sticky status or a jump link.
+4. **Design-token follow-through:** spacing still has many literal values; button heights and focus styles could come from tokens too. Check dark mode visually on the merged cards.
+5. **Accessibility verification with a real screen reader** (NVDA/VoiceOver); so far only automated browser tests and code review.
+6. **Real authentication for reviewers** (today the name is self-asserted) and storing the audit head hash outside the log.
+7. **CI follow-ups:** pin action versions to commit SHAs, add a dependency-audit step, and run the suite against the minimum supported DuckDB as well as the latest.
+8. Items from "Known limitations" above (big files, SQL dump dialects, timestamps/time zones, analysis by LLM out of scope).
