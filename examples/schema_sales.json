@@ -1,0 +1,53 @@
+{
+  "name": "sales",
+  "version": 1,
+  "columns": [
+    {
+      "name": "order_id",
+      "type": "integer",
+      "required": true,
+      "unique": true,
+      "min": 1,
+      "description": "Unique order number"
+    },
+    {
+      "name": "customer_email",
+      "type": "string",
+      "pii": true,
+      "pattern": "[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}",
+      "description": "Email address of the buyer"
+    },
+    {
+      "name": "region",
+      "type": "string",
+      "required": true,
+      "allowed": [
+        "EU",
+        "US",
+        "APAC"
+      ],
+      "description": "Sales region code"
+    },
+    {
+      "name": "amount",
+      "type": "decimal",
+      "scale": 2,
+      "required": true,
+      "min": "0",
+      "description": "Order total in EUR"
+    },
+    {
+      "name": "order_date",
+      "type": "date",
+      "format": "%Y-%m-%d",
+      "required": true,
+      "description": "Date the order was placed"
+    },
+    {
+      "name": "paid",
+      "type": "boolean",
+      "required": true,
+      "description": "Whether the order has been paid"
+    }
+  ]
+}

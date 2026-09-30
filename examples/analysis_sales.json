@@ -1,0 +1,10 @@
+{
+  "metrics": [
+    {"name": "total_amount", "description": "Sum of all valid order amounts",
+     "sql": "SELECT SUM(amount) AS total FROM data"},
+    {"name": "by_region", "description": "Revenue and order count per region",
+     "sql": "SELECT region, SUM(amount) AS total, COUNT(*) AS orders FROM data GROUP BY region ORDER BY region"},
+    {"name": "paid_share", "description": "Share of orders that are paid",
+     "sql": "SELECT COUNT(*) FILTER (WHERE paid) AS paid_orders, COUNT(*) AS all_orders FROM data"}
+  ]
+}

@@ -1,0 +1,225 @@
+"""Schema definition, loading, inference and drift detection."""
+import hashlib
+import json
+import re
+from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+
+from .coerce import TYPES, DEFAULT_SCALE, parse_typed
+from .errors import SchemaError
+
+NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+PII_HINT_RE = re.compile(r"(e-?mail|phone|mobile|ssn|passport|birth|dob|address|iban|card|salary|name)", re.I)
+_TOP_KEYS = {"name", "version", "null_tokens", "columns", "provenance"}
+_COL_KEYS = {"name", "type", "source", "required", "unique", "pii", "min", "max", "scale",
+             "format", "pattern", "max_length", "allowed", "description"}
+
+
+@dataclass
+class Column:
+    name: str
+    type: str = "string"
+    source: str = None
+    required: bool = False
+    unique: bool = False
+    pii: bool = False
+    min: object = None
+    max: object = None
+    scale: int = None
+    format: str = None
+    pattern: str = None
+    max_length: int = None
+    allowed: list = None
+    description: str = None
+
+    @property
+    def src(self):
+        return self.source or self.name
+
+    def parse(self, raw):
+        return parse_typed(self.type, raw, fmt=self.format, scale=self.scale)
+
+    @property
+    def effective_scale(self):
+        return DEFAULT_SCALE if self.scale is None else self.scale
+
+
+@dataclass
+class Schema:
+    name: str
+    version: int
+    columns: list
+    null_tokens: tuple = ("",)
+    inferred: bool = False
+    provenance: dict = None      # e.g. which approved mapping proposal produced this schema
+
+    def to_dict(self):
+        cols = []
+        for c in self.columns:
+            d = {"name": c.name, "type": c.type}
+            if c.source:
+                d["source"] = c.source
+            for key in ("required", "unique", "pii"):
+                if getattr(c, key):
+                    d[key] = True
+            for key in ("min", "max", "scale", "format", "pattern", "max_length"):
+                v = getattr(c, key)
+                if v is not None:
+                    d[key] = _ser(v)
+            if c.allowed is not None:
+                d["allowed"] = [_ser(v) for v in c.allowed]
+            if c.description:
+                d["description"] = c.description
+            cols.append(d)
+        out = {"name": self.name, "version": self.version, "null_tokens": list(self.null_tokens), "columns": cols}
+        if self.provenance:
+            out["provenance"] = self.provenance
+        return out
+
+    def fingerprint(self):
+        canon = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canon.encode()).hexdigest()
+
+
+def _ser(v):
+    if isinstance(v, (date,)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return format(v, "f")
+    return v
+
+
+# ------------------------------------------------------------------ loading
+def load_schema(path) -> Schema:
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SchemaError(f"cannot read schema file: {exc}")
+    return schema_from_dict(doc)
+
+
+def schema_from_dict(doc) -> Schema:
+    if not isinstance(doc, dict):
+        raise SchemaError("schema must be a JSON object")
+    unknown = set(doc) - _TOP_KEYS
+    if unknown:
+        raise SchemaError(f"unknown schema keys: {sorted(unknown)}")
+    if not isinstance(doc.get("columns"), list) or not doc["columns"]:
+        raise SchemaError("schema needs a non-empty 'columns' list")
+    cols, seen = [], set()
+    for raw in doc["columns"]:
+        if not isinstance(raw, dict):
+            raise SchemaError("each column must be an object")
+        unknown = set(raw) - _COL_KEYS
+        if unknown:
+            raise SchemaError(f"unknown column keys {sorted(unknown)} in column {raw.get('name')!r}")
+        name = raw.get("name")
+        if not isinstance(name, str) or not NAME_RE.match(name):
+            raise SchemaError(f"invalid column name {name!r} (letters, digits, underscore; not starting with a digit)")
+        if name in seen:
+            raise SchemaError(f"duplicate column name {name!r}")
+        seen.add(name)
+        col = Column(**raw)
+        if col.type not in TYPES:
+            raise SchemaError(f"column {name!r}: unknown type {col.type!r}; choose from {TYPES}")
+        if col.scale is not None and not (isinstance(col.scale, int) and 0 <= col.scale <= 18):
+            raise SchemaError(f"column {name!r}: scale must be an integer 0..18")
+        if col.scale is not None and col.type != "decimal":
+            raise SchemaError(f"column {name!r}: scale only applies to decimal columns")
+        if col.format is not None and col.type != "date":
+            raise SchemaError(f"column {name!r}: format only applies to date columns")
+        try:
+            for key in ("min", "max"):
+                v = getattr(col, key)
+                if v is not None:
+                    if col.type not in ("integer", "decimal", "date"):
+                        raise SchemaError(f"column {name!r}: {key} only applies to numeric/date columns")
+                    setattr(col, key, col.parse(v))
+            if col.allowed is not None:
+                col.allowed = [col.parse(v) for v in col.allowed]
+        except ValueError as exc:
+            raise SchemaError(f"column {name!r}: bad constraint value ({exc})")
+        if col.pattern is not None:
+            try:
+                re.compile(col.pattern)
+            except re.error as exc:
+                raise SchemaError(f"column {name!r}: invalid pattern ({exc})")
+        cols.append(col)
+    prov = doc.get("provenance")
+    if prov is not None and not isinstance(prov, dict):
+        raise SchemaError("provenance must be an object")
+    return Schema(
+        name=str(doc.get("name", "unnamed")),
+        version=int(doc.get("version", 1)),
+        columns=cols,
+        null_tokens=tuple(doc.get("null_tokens", [""])),
+        provenance=prov,
+    )
+
+
+# ------------------------------------------------------------------ inference
+def _sanitize(name, taken):
+    base = re.sub(r"\W+", "_", name).strip("_").lower() or "col"
+    if base[0].isdigit():
+        base = "_" + base
+    candidate, i = base, 2
+    while candidate in taken:
+        candidate, i = f"{base}_{i}", i + 1
+    return candidate
+
+
+def _all_parse(type_, values, **kw):
+    try:
+        for v in values:
+            parse_typed(type_, v, **kw)
+        return True
+    except ValueError:
+        return False
+
+
+def infer_type(present):
+    """Conservative type guess from non-empty values (str or already-typed JSON/SQL values)."""
+    if present and all(isinstance(v, bool) or (isinstance(v, str) and v.lower() in ("true", "false")) for v in present):
+        return "boolean"
+    if present and _all_parse("integer", present):
+        return "integer"
+    if present and _all_parse("decimal", present):
+        return "decimal"
+    if present and _all_parse("date", present):
+        return "date"
+    return "string"
+
+
+def present_values(values):
+    out = []
+    for v in values:
+        v = v.strip() if isinstance(v, str) else v
+        if v is not None and v != "":
+            out.append(v)
+    return out
+
+
+def infer_schema(table, name="inferred") -> Schema:
+    """Best-effort proposal. A human must review it: inference cannot know meaning, PII or uniqueness."""
+    taken, cols = set(), []
+    for src in table.columns:
+        values = [r.get(src) for r in table.rows]
+        present = present_values(values)
+        cname = _sanitize(src, taken)
+        taken.add(cname)
+        cols.append(Column(
+            name=cname, type=infer_type(present), source=src if src != cname else None,
+            required=len(present) == len(values) and len(values) > 0,
+            pii=bool(PII_HINT_RE.search(src)),
+        ))
+    return Schema(name=name, version=0, columns=cols, inferred=True)
+
+
+# ------------------------------------------------------------------ drift
+def compare_columns(schema: Schema, file_columns):
+    known = {c.src for c in schema.columns}
+    missing = [c for c in schema.columns if c.src not in file_columns]
+    extra = [c for c in file_columns if c not in known]
+    return missing, extra

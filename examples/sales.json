@@ -1,0 +1,10 @@
+[
+  {"order_id": 1001, "customer_email": "anna@example.com", "region": "EU", "amount": 120.50, "order_date": "2026-01-05", "paid": true},
+  {"order_id": 1002, "customer_email": "ben@example.com", "region": "EU", "amount": 79.50, "order_date": "2026-01-06", "paid": true},
+  {"order_id": 1003, "customer_email": "cara@example.com", "region": "US", "amount": 300.00, "order_date": "2026-01-07", "paid": false},
+  {"order_id": 1004, "customer_email": "dan@example.com", "region": "US", "amount": 49.99, "order_date": "2026-01-08", "paid": true},
+  {"order_id": 1005, "customer_email": "eva@example.com", "region": "APAC", "amount": 10.01, "order_date": "2026-01-09", "paid": true},
+  {"order_id": 1006, "customer_email": "finn@example.com", "region": "US", "amount": 0.01, "order_date": "2026-01-10", "paid": true},
+  {"order_id": 1007, "customer_email": "gia@example.com", "region": "APAC", "amount": 0.10, "order_date": "2026-01-11", "paid": false},
+  {"order_id": 1008, "customer_email": "hugo@example.com", "region": "APAC", "amount": 0.20, "order_date": "2026-01-12", "paid": true}
+]

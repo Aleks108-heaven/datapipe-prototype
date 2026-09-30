@@ -1,0 +1,11 @@
+BEGIN TRANSACTION;
+CREATE TABLE sales (order_id INTEGER, customer_email TEXT, region TEXT, amount DECIMAL(10,2), order_date TEXT, paid BOOLEAN);
+INSERT INTO sales VALUES(1001,'anna@example.com','EU',120.50,'2026-01-05',1);
+INSERT INTO sales VALUES(1002,'ben@example.com','EU',79.50,'2026-01-06',1);
+INSERT INTO sales VALUES(1003,'cara@example.com','US',300.00,'2026-01-07',0);
+INSERT INTO sales VALUES(1004,'dan@example.com','US',49.99,'2026-01-08',1);
+INSERT INTO sales VALUES(1005,'eva@example.com','APAC',10.01,'2026-01-09',1);
+INSERT INTO sales VALUES(1006,'finn@example.com','US',0.01,'2026-01-10',1);
+INSERT INTO sales VALUES(1007,'gia@example.com','APAC',0.10,'2026-01-11',0);
+INSERT INTO sales VALUES(1008,'hugo@example.com','APAC',0.20,'2026-01-12',1);
+COMMIT;
