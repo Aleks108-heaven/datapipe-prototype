@@ -239,7 +239,7 @@ def parse_sql_dump(text, table=None) -> RawTable:
             "SQL dump could not be executed in the sandbox (SQLite-compatible dumps only; forbidden, "
             f"unsupported or malformed statement; sqlite error: {getattr(exc, 'sqlite_errorname', type(exc).__name__)})"
         )
-    conn.set_authorizer(None)
+    conn.set_authorizer(lambda *_: _S.SQLITE_OK)       # set_authorizer(None) only clears it from Python 3.11; on 3.10 it denies everything
     conn.set_progress_handler(None, 0)
     try:
         names = [r[0] for r in conn.execute(
