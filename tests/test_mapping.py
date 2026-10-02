@@ -12,7 +12,8 @@ from datapipe.audit import AuditLog
 from datapipe.cli import main
 from datapipe.errors import DataPipeError
 from datapipe.ingest import parse_csv, read_source
-from datapipe.llm import AnthropicProvider, HeuristicProvider, MappingProvider, ProviderError, ProviderResult, name_score, parse_mappings
+from datapipe.llm import (AnthropicProvider, HeuristicProvider, MappingProvider, OpenAICompatProvider, ProviderError,
+                          ProviderResult, name_score, parse_mappings)
 from datapipe.llm.prompt import render_user
 from datapipe.mapping import (approve_mapping, build_request, clean_name, egress_mode, propose_mapping, shape_of,
                               verify_proposal_integrity)
@@ -315,6 +316,49 @@ def test_hostile_llm_reply_is_neutralised_by_verification(api):
                             {"source": "Area", "target": "paid", "confidence": 1, "rationale": "x"}]}
     p = propose(anthropic(api(reply=json.dumps(hostile))))
     assert {i["status"] for i in p["items"]} == {"rejected"}
+
+
+# ---------------------------------------------------------------- OpenAI-compatible provider (Ollama, LM Studio, free tiers)
+def test_openai_compat_local_flow_stays_local_and_needs_no_key(api, monkeypatch):
+    monkeypatch.delenv("DATAPIPE_LLM_API_KEY", raising=False)
+    reply = json.dumps({"mappings": [{"source": x["source"], "target": x["target"], "confidence": x["confidence"],
+                                      "rationale": "ok"} for x in GOOD]})
+    server = api(reply=None, raw=json.dumps({"choices": [{"message": {"role": "assistant", "content": reply}}]}).encode())
+    prov = OpenAICompatProvider(model="llama-test", base_url=server.url + "/v1")
+    assert prov.locality == "local"
+    p = propose(prov, policy="business")
+    assert all(i["status"] == "accepted" for i in p["items"])
+    assert p["egress"]["mode"] == "local" and p["egress"]["payload"] is not None
+    req = server.requests[0]
+    assert req["path"] == "/v1/chat/completions" and "authorization" not in {k.lower() for k in req["headers"]}
+    assert req["body"]["messages"][0]["role"] == "system" and "anna@example.com" not in json.dumps(req["body"])
+
+
+def test_openai_compat_remote_needs_key_sends_bearer_and_is_cloud(api, monkeypatch):
+    monkeypatch.delenv("DATAPIPE_LLM_API_KEY", raising=False)
+    with pytest.raises(ProviderError, match="API_KEY"):
+        OpenAICompatProvider(model="m", base_url="https://api.example.com/v1")
+    prov = OpenAICompatProvider(model="m", api_key="k", base_url="https://api.example.com/v1")
+    assert prov.locality == "cloud"
+    server = api(raw=json.dumps({"choices": [{"message": {"content": "{\"mappings\": []}"}}]}).encode())
+    OpenAICompatProvider(model="m", api_key="k", base_url=server.url + "/v1").propose(build_request(table("a\n1\n"), TARGET, "shapes"))
+    assert {k.lower(): v for k, v in server.requests[0]["headers"].items()}["authorization"] == "Bearer k"
+
+
+def test_openai_compat_policy_and_error_paths(api, monkeypatch):
+    monkeypatch.delenv("DATAPIPE_LLM_MODEL", raising=False)
+    with pytest.raises(ProviderError, match="model"):
+        OpenAICompatProvider()
+    local = OpenAICompatProvider(model="m", base_url="http://localhost:11434/v1")
+    with pytest.raises(DataPipeError):                      # regulated allows no LLM at all, local or not
+        egress_mode(get_policy("regulated"), local)
+    with pytest.raises(ProviderError) as e:
+        OpenAICompatProvider(model="m", base_url=api(status=500, raw=b"SECRET-BODY").url + "/v1").propose(
+            build_request(table("a\n1\n"), TARGET, "shapes"))
+    assert "500" in str(e.value) and "SECRET" not in str(e.value)
+    for bad in (b"not json", b'{"choices": []}', b'{"choices": [{"message": {"content": null}}]}'):
+        with pytest.raises(ProviderError):
+            OpenAICompatProvider(model="m", base_url=api(raw=bad).url + "/v1").propose(build_request(table("a\n1\n"), TARGET, "shapes"))
 
 
 # ---------------------------------------------------------------- heuristic baseline

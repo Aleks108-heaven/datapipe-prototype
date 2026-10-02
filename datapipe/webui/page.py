@@ -16,6 +16,7 @@ _TEMPLATE = r"""<!doctype html>
 <style nonce="{{NONCE}}">
 :root{
   --bg:#f6f6f3; --surface:#ffffff; --text:#1b1b19; --muted:#63635d; --line:#dcdcd4;
+  --line-strong:#76766e;   /* control boundaries: >= 3:1 on surface and page (WCAG 1.4.11); --line stays for decorative card edges */
   --accent:#2757d6; --accent-ink:#ffffff;
   --ok:#17692f; --ok-bg:#e4f3e8; --warn:#8a5200; --warn-bg:#fff1d0; --bad:#a8231b; --bad-bg:#fce6e3;
   --radius:12px; --r-sm:8px; --r-md:10px; --r-pill:999px;
@@ -24,6 +25,7 @@ _TEMPLATE = r"""<!doctype html>
 @media (prefers-color-scheme:dark){
   :root{
     --bg:#131312; --surface:#1d1d1b; --text:#ecece7; --muted:#a4a49c; --line:#383832;
+    --line-strong:#8c8c84;
     --accent:#7ea3ff; --accent-ink:#0d1526;
     --ok:#77d296; --ok-bg:#15301e; --warn:#f2bd5f; --warn-bg:#33270e; --bad:#ff9087; --bad-bg:#3b1a17;
   }
@@ -74,9 +76,9 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);
 ul.reasons{margin:8px 0 0;padding-left:20px;color:var(--warn)}
 ul.reasons.rej{color:var(--bad)}
 .quote{margin:8px 0 0;padding:6px 10px;border-left:3px solid var(--line);color:var(--muted);font-size:var(--fs-md);overflow-wrap:anywhere}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin-top:10px}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r-md);overflow:hidden;margin-top:10px}
 .seg button{border:0;background:var(--surface);color:var(--text);padding:8px 18px;min-height:var(--tap);cursor:pointer}
-.seg button+button{border-left:1px solid var(--line)}
+.seg button+button{border-left:1px solid var(--line-strong)}
 .seg button[aria-checked=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .seg button:disabled{cursor:not-allowed;opacity:.55}
 .locked{margin-top:10px;color:var(--muted);font-size:var(--fs-md)}
@@ -91,18 +93,18 @@ ul.reasons.rej{color:var(--bad)}
 .fields{display:grid;grid-template-columns:minmax(120px,220px) 1fr;gap:var(--s2)}
 @media (max-width:620px){.fields{grid-template-columns:1fr}}
 label.f{display:block;font-size:var(--fs-xs);color:var(--muted);margin-bottom:2px}
-input,textarea{width:100%;padding:9px 10px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}
+input,textarea{width:100%;padding:9px 10px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--bg);color:var(--text);font:inherit}
 textarea{min-height:var(--tap);resize:vertical}
 .btns{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
 button.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:var(--r-md);padding:10px 18px;min-height:var(--tap);font-weight:650;cursor:pointer}
-button.secondary{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 16px;min-height:var(--tap);cursor:pointer}
+button.secondary{background:transparent;color:var(--text);border:1px solid var(--line-strong);border-radius:var(--r-md);padding:10px 16px;min-height:var(--tap);cursor:pointer}
 button.danger{color:var(--bad);border-color:var(--bad)}
 button:disabled{opacity:.5;cursor:not-allowed}
 .why{color:var(--muted);font-size:var(--fs-sm);flex:1;min-width:180px}
 .err{color:var(--bad);font-size:var(--fs-md)}
 .cmd{font:var(--fs-sm)/1.4 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 10px;overflow-wrap:anywhere;white-space:pre-wrap}
 .empty{text-align:center;padding:36px 12px;color:var(--muted)}
-select{width:100%;padding:9px 10px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit;min-height:42px}
+select{width:100%;padding:9px 10px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--bg);color:var(--text);font:inherit;min-height:42px}
 select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .change{display:grid;grid-template-columns:1fr minmax(170px,290px);gap:6px 14px;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
 .change .cur{font-size:var(--fs-md);overflow-wrap:anywhere}
@@ -110,6 +112,13 @@ select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 @media (max-width:760px){.change{grid-template-columns:1fr}}.badge.b-manual{background:var(--accent);color:var(--accent-ink)}
 .superseded{margin-top:10px;color:var(--muted);font-size:var(--fs-md)}
 button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
+/* The reviewer's live to-do count stays on screen while scrolling; on phones the action bar is at the end of the page, so it also carries a jump. */
+.statusline{position:sticky;top:0;z-index:4;display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;justify-content:space-between;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 0;margin:0 0 12px}
+.statusline p{margin:0;font-weight:600;flex:1;min-width:200px}
+.jump{display:none}
+@media (max-width:899px){.jump{display:inline-block}}
+html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus must not end up under the sticky strip or the action bar */
+.statusline+.card{margin-top:0}
 </style>
 </head>
 <body>
@@ -123,6 +132,7 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
   var fixedReviewer = document.querySelector('meta[name=fixed-reviewer]').content;
   var app = document.getElementById('app');
   var ID_RE = /^[0-9a-f]{64}$/;
+  var unsaved = null;                       // set by the detail view; returns true while the reviewer has unsubmitted work
 
   // ---- tiny DOM helper: text is ALWAYS set as text, never parsed as HTML
   function h(tag, props) {
@@ -184,6 +194,7 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
   var STATUS_BADGE = { accepted: ['b-ok', 'Verified'], needs_review: ['b-warn', 'Needs your review'], rejected: ['b-bad', 'Rejected by verification'] };
   function egressText(mode) {
     if (mode === 'none') return 'Nothing left this machine (offline provider)';
+    if (mode === 'local') return 'Column names and value shapes were sent to a model on this machine; nothing left it';
     if (mode === 'shapes') return 'Column names and value shapes were sent to the LLM';
     if (mode === 'shapes+samples') return 'Column names, value shapes and a few sample values were sent to the LLM';
     return String(mode);
@@ -273,6 +284,8 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
     var errBox = h('div', { class: 'err', id: 'errbox', role: 'alert' });
     var itemsBox = h('div', { id: 'items' });
     var summaryBox = h('p', { class: 'small', id: 'summary' });
+    var jumpBtn = h('button', { type: 'button', class: 'secondary small jump', text: 'Go to approve / reject',
+                                onclick: function () { bar.scrollIntoView({ block: 'end' }); (decided || st.result ? bar : reviewer).focus(); } });
     var remapBox = h('div', { id: 'remap' });
     var bar = h('div', { class: 'actionbar' });
 
@@ -350,8 +363,8 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
     function evidenceChips(e, withAlternatives) {
       var chips = h('div', { class: 'evidence' });
       chips.appendChild(h('span', { class: 'chip', text: 'Values fit target type: ' + pct(e.parse_rate) + ' of ' + e.non_null }));
-      chips.appendChild(h('span', { class: 'chip', text: 'Distinct: ' + pct(e.distinct_ratio) }));
-      chips.appendChild(h('span', { class: 'chip', text: 'Name similarity: ' + (e.name_score === undefined ? 'n/a' : Number(e.name_score).toFixed(2)) }));
+      chips.appendChild(h('span', { class: 'chip', text: 'Distinct values: ' + pct(e.distinct_ratio) }));
+      chips.appendChild(h('span', { class: 'chip', text: 'Name similarity: ' + (e.name_score === undefined ? 'n/a' : pct(e.name_score)) }));
       if (withAlternatives && e.alternatives && e.alternatives.length) chips.appendChild(h('span', { class: 'chip', text: 'Other columns that also fit: ' + e.alternatives.join(', ') }));
       return chips;
     }
@@ -539,6 +552,9 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
     });
     reviewer.addEventListener('input', updateBar);
     note.addEventListener('input', updateBar);
+    unsaved = function () {
+      return !decided && !st.result && (Object.keys(st.decisions).length > 0 || Object.keys(st.manual).length > 0 || note.value.trim() !== '');
+    };
 
     // ---- static parts
     clear(app);
@@ -550,18 +566,25 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
     reqBanner = h('div', { class: 'banner warn', id: 'req-banner' });
     app.appendChild(reqBanner);
 
+    // What the reviewer's decision depends on stays in view (who proposed, which tier, what left the machine); the rest is one click away.
+    app.appendChild(h('div', { class: 'statusline' }, summaryBox, jumpBtn));
     app.appendChild(h('div', { class: 'card' }, h('dl', { class: 'meta' },
-      h('dt', { text: 'Source file' }), h('dd', { text: (p.source.name || '') + ' · ' + (p.source.format || '?') + ' · sha256 ' + String(p.source.sha256 || '').slice(0, 12) }),
       h('dt', { text: 'Proposed by' }), h('dd', { text: p.actor + ' on ' + when(p.created) }),
       h('dt', { text: 'Policy' }), h('dd', { text: p.policy }),
-      h('dt', { text: 'Provider' }), h('dd', { text: (p.provider.name || '?') + (p.provider.model ? ' (' + p.provider.model + ')' : '') + ' · ' + (p.provider.locality || '') }),
-      h('dt', { text: 'Data sent out' }), h('dd', { text: egressText((p.egress || {}).mode) }),
-      h('dt', { text: 'Thresholds' }), h('dd', { text: 'confidence ≥ ' + (p.thresholds || {}).min_confidence + ', value fit ≥ ' + pct((p.thresholds || {}).min_parse_rate) })),
+      h('dt', { text: 'Data sent out' }), h('dd', { text: egressText((p.egress || {}).mode) })),
+      h('details', { id: 'more' }, h('summary', { text: 'More about this proposal' }), h('dl', { class: 'meta' },
+        h('dt', { text: 'Source file' }), h('dd', { text: (p.source.name || '') + ' · ' + (p.source.format || '?') + ' · sha256 ' + String(p.source.sha256 || '').slice(0, 12) }),
+        h('dt', { text: 'Provider' }), h('dd', { text: (p.provider.name || '?') + (p.provider.model ? ' (' + p.provider.model + ')' : '') + ' · ' + (p.provider.locality || '') }),
+        h('dt', { text: 'Thresholds' }), h('dd', { text: 'confidence ≥ ' + (p.thresholds || {}).min_confidence + ', value fit ≥ ' + pct((p.thresholds || {}).min_parse_rate) }))),
       (p.egress && p.egress.payload) ? h('details', null, h('summary', { text: 'Exactly what was sent' }), h('pre', { id: 'payload', text: JSON.stringify(p.egress.payload, null, 2) })) : null));
 
     app.appendChild(h('h2', { text: 'Mappings' }));
-    app.appendChild(summaryBox);
     app.appendChild(h('p', { class: 'small muted', text: 'One card per schema column; the ones that need you come first. Verified items are included by default, items that need review are excluded until you include them, and refused items cannot be included. To use a different file column, choose it on the card: it is checked against the real values in the source file, and a note is required.' }));
+    app.appendChild(h('details', { id: 'legend' }, h('summary', { text: 'How to read the evidence' }), h('ul', { class: 'small' },
+      h('li', { text: 'Values fit target type: how many of the non-empty values in the file column parse as the target type. This is the hard check; below the threshold the mapping is refused.' }),
+      h('li', { text: 'Distinct values: share of values that are different from each other. Expect ~100% for an ID column and a low figure for a flag or category; it only matters when the target must be unique.' }),
+      h('li', { text: 'Name similarity: how alike the file column name and the schema column name are. It is a hint, not proof.' }),
+      h('li', { text: 'Other columns that also fit: more than one column would pass the type check, so the name and the data alone cannot decide; you must.' }))));
     app.appendChild(remapBox);
     app.appendChild(itemsBox);
 
@@ -579,7 +602,20 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
     var m = /^#\/p\/([0-9a-f]{64})$/.exec(location.hash);
     if (m && ID_RE.test(m[1])) showDetail(m[1]); else showList();
   }
-  window.addEventListener('hashchange', route);
+  // Unsaved work (decisions, manual mappings, a typed note) lives only in this page: ask before reload, close or leaving the proposal.
+  var currentHash = location.hash;
+  window.addEventListener('beforeunload', function (ev) {
+    if (unsaved && unsaved()) { ev.preventDefault(); ev.returnValue = ''; }
+  });
+  window.addEventListener('hashchange', function () {
+    if (location.hash === currentHash) return;               // our own restore below
+    if (unsaved && unsaved() && !window.confirm('You have decisions that are not saved yet. Leave this proposal and discard them?')) {
+      location.hash = currentHash;
+      return;
+    }
+    unsaved = null; currentHash = location.hash;
+    route();
+  });
   if (fixedReviewer) document.getElementById('whoami').textContent = 'reviewing as ' + fixedReviewer;
   route();
 })();

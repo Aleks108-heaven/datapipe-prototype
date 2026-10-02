@@ -4,6 +4,7 @@ import os
 import re
 import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -25,7 +26,7 @@ class ProviderResult:
 
 class MappingProvider:
     name = "base"
-    locality = "offline"                # "offline": nothing leaves the machine; "cloud": request is sent out
+    locality = "offline"                # "offline": no model; "local": a model on this machine; "cloud": request is sent out
     model = None
 
     def propose(self, request: dict) -> ProviderResult:  # pragma: no cover - interface
@@ -112,6 +113,48 @@ class AnthropicProvider(LLMProvider):
         except (ValueError, KeyError, TypeError, AttributeError):
             raise ProviderError("LLM API returned an unexpected response shape")
         if not text:
+            raise ProviderError("LLM API returned no text")
+        return text
+
+
+class OpenAICompatProvider(LLMProvider):
+    """Calls any OpenAI-compatible /chat/completions endpoint: Ollama, LM Studio, llama.cpp, vLLM, and hosted free tiers
+    (Groq, OpenRouter, Gemini's compatible endpoint). A loopback base URL means the data stays on this machine
+    (locality "local"); any other host is treated as "cloud". The api key is optional for local servers."""
+    name = "openai-compat"
+
+    def __init__(self, model=None, api_key=None, base_url="http://127.0.0.1:11434/v1", timeout=120, max_tokens=2000):
+        self.model = model or os.environ.get("DATAPIPE_LLM_MODEL")
+        self.api_key = api_key or os.environ.get("DATAPIPE_LLM_API_KEY")
+        if not self.model:
+            raise ProviderError("no model configured: pass --model or set DATAPIPE_LLM_MODEL")
+        self.base_url = base_url.rstrip("/")
+        host = urllib.parse.urlsplit(self.base_url).hostname or ""
+        self.locality = "local" if host in ("localhost", "127.0.0.1", "::1") else "cloud"
+        if self.locality == "cloud" and not self.api_key:
+            raise ProviderError("DATAPIPE_LLM_API_KEY is not set (needed for a non-local endpoint)")
+        self.timeout = timeout
+        self.max_tokens = max_tokens
+
+    def _complete(self, system, user):
+        body = json.dumps({"model": self.model, "max_tokens": self.max_tokens, "temperature": 0, "stream": False,
+                           "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
+        headers = {"content-type": "application/json"}
+        if self.api_key:
+            headers["authorization"] = "Bearer " + self.api_key
+        req = urllib.request.Request(self.base_url + "/chat/completions", data=body, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                raw = resp.read(2_000_000)
+        except urllib.error.HTTPError as exc:
+            raise ProviderError(f"LLM API returned HTTP {exc.code}")
+        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
+            raise ProviderError(f"LLM API request failed ({type(exc).__name__})")
+        try:
+            text = json.loads(raw)["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+            raise ProviderError("LLM API returned an unexpected response shape")
+        if not isinstance(text, str) or not text:
             raise ProviderError("LLM API returned no text")
         return text
 

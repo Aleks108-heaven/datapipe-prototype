@@ -87,9 +87,16 @@ def ui(wd):
 def page(browser):
     ctx = browser.new_context(viewport={"width": 1100, "height": 900})
     pg = ctx.new_page()
-    pg.errors, pg.dialogs = [], []
+    pg.errors, pg.dialogs, pg.confirm_answer = [], [], False
+
+    def on_dialog(d):
+        if d.type == "beforeunload":                    # test setup navigates freely; the guard itself is tested via confirm()
+            d.accept()
+            return
+        pg.dialogs.append(d.message)
+        d.accept() if pg.confirm_answer else d.dismiss()
     pg.on("pageerror", lambda e: pg.errors.append(str(e)))
-    pg.on("dialog", lambda d: (pg.dialogs.append(d.message), d.dismiss()))
+    pg.on("dialog", on_dialog)
     pg.add_init_script("window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective));")
     yield pg
     assert pg.errors == [], pg.errors
@@ -495,3 +502,48 @@ def test_phone_layout_with_the_remap_section(page, ui):
     shot(page, "13-remap-phone")
     open_detail(page, ui, ui.hostile, viewport={"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth") <= 1
+
+
+def test_leaving_with_unsaved_decisions_asks_first(page, ui):
+    open_detail(page, ui, ui.remap)
+    page.get_by_role("button", name="← All proposals").click()      # nothing decided yet: no prompt expected
+    expect(page.get_by_role("heading", name="Mapping proposals")).to_be_visible()
+    assert page.dialogs == []
+
+    open_detail(page, ui, ui.remap)
+    remap_select(page, "paid").select_option(label="Paid?")
+    expect(page.locator('.card[data-status="manual"]')).to_have_count(1)
+    page.get_by_role("button", name="← All proposals").click()      # unsaved manual mapping: asked, answer no -> stay
+    for _ in range(50):
+        if page.dialogs:
+            break
+        page.wait_for_timeout(100)
+    assert len(page.dialogs) == 1 and "not saved" in page.dialogs[0]
+    expect(page.locator('.card[data-status="manual"]')).to_have_count(1)
+    expect(page.get_by_role("button", name="← All proposals")).to_be_visible()
+    page.confirm_answer = True
+    page.get_by_role("button", name="← All proposals").click()      # answer yes -> leave
+    expect(page.get_by_role("heading", name="Mapping proposals")).to_be_visible()
+
+
+def test_status_strip_stays_visible_and_phone_can_jump_to_the_action_bar(page, ui):
+    open_detail(page, ui, ui.remap, viewport={"width": 390, "height": 844})
+    expect(page.locator("#summary")).to_contain_text("need your decision")
+    assert page.locator("#more").evaluate("e => e.open") is False            # provenance details are folded away...
+    expect(page.get_by_text("Data sent out")).to_be_visible()                 # ...but what left the machine is not
+    page.mouse.wheel(0, 700)
+    page.wait_for_timeout(200)
+    expect(page.locator("#summary")).to_be_in_viewport()                      # sticky: the to-do count follows the reviewer
+    page.get_by_role("button", name="Go to approve / reject").click()
+    expect(page.locator("#reviewer")).to_be_in_viewport()
+    expect(page.locator("#reviewer")).to_be_focused()
+    page.set_viewport_size({"width": 1100, "height": 900})
+    expect(page.get_by_role("button", name="Go to approve / reject")).to_be_hidden()   # desktop already has the fixed bar
+
+
+def test_evidence_legend_and_one_notation(page, ui):
+    open_detail(page, ui, ui.remap)
+    expect(page.locator("#legend summary")).to_have_text("How to read the evidence")
+    chips = page.locator(".evidence .chip").all_inner_texts()
+    assert any(c.startswith("Distinct values: ") and c.endswith("%") for c in chips)
+    assert all(c.endswith("%") for c in chips if c.startswith("Name similarity"))

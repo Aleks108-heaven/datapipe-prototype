@@ -32,6 +32,8 @@ def egress_mode(policy, provider: MappingProvider) -> str:
     if policy.llm == "none":
         raise DataPipeError(f"policy {policy.name!r} forbids sending data to an external LLM "
                             "(use the offline heuristic provider)")
+    if provider.locality == "local":          # a model on this machine: shapes only, but the payload is still recorded
+        return "local"
     return "shapes+samples" if policy.llm == "cloud" else "shapes"
 
 

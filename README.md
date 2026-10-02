@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 281 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 287 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -65,6 +65,13 @@ Design rules:
 3. **A different person approves** (`approve-mapping`, four-eyes). Rejected items can never be included; `needs_review` items only with `--accept-review`; required targets must end up mapped. The proposal is hash-sealed, so edits after the fact are refused.
 4. **Traceable:** the approved schema carries provenance (proposal hash, proposer, approver, provider/model) that is copied into every run's `result.json`; audit events record hashes, never data.
 5. The Anthropic provider uses explicit model selection (`--model` / `DATAPIPE_LLM_MODEL`) and `ANTHROPIC_API_KEY`; nothing is sent unless you pick it.
+6. **Local or free models** use `--provider openai-compat`, which speaks the OpenAI-style `/chat/completions` API (Ollama, LM Studio, llama.cpp, vLLM, or hosted free tiers such as Groq / OpenRouter). The default URL is Ollama's:
+
+        ollama pull llama3.1
+        python -m datapipe map new_file.csv --schema examples/schema_sales.json --provider openai-compat --model llama3.1
+        # hosted: --base-url https://api.groq.com/openai/v1 --model <id>   with DATAPIPE_LLM_API_KEY set
+
+   A loopback URL (`localhost`, `127.0.0.1`) is recorded as egress `local`: shapes only, payload still stored in the proposal, nothing leaves the machine, no key needed. Any other host counts as `cloud` and follows the tier rules above. `regulated` still refuses every LLM. Verification does not change, so a weak small model can only produce more `needs_review`/rejected items, not wrong accepted ones; expect lower hit rates than a frontier model. Tested against a fake local server only, not against Ollama itself.
 
 Limits of this layer: it was tested against a fake local API server and scripted replies, **not against the live API**;
 LLM confidence numbers are uncalibrated; two columns of the same type (e.g. net vs gross amount) cannot be told apart by value checks,
@@ -132,9 +139,10 @@ When the provider missed a column or picked the wrong one, the reviewer can map 
 
 ### Should do next
 
-1. **Explain the evidence chips** in the UI ("Distinct" especially) with a one-line legend and use one notation for all of them (percent vs 0-1).
-2. **Warn before losing decisions:** include/exclude choices and manual mappings live only in the page; navigating away or reloading drops them silently.
-3. **Phone layout:** the approve/reject bar sits at the very end of the page; consider a compact sticky status or a jump link.
+1. ~~Explain the evidence chips~~ (done: "How to read the evidence" legend, percent everywhere).
+2. ~~Warn before losing decisions~~ (done: leave/reload prompt while decisions, manual mappings or a note are unsubmitted; the decisions themselves are still not persisted across a reload).
+2b. ~~Control borders~~ (done: `--line-strong` token, >= 3:1, for inputs, selects, secondary buttons and Include/Exclude).
+3. ~~Phone layout~~ (done: the to-do count is a sticky strip at the top of the proposal, with a "Go to approve / reject" jump on phones; provenance details are folded so the first decision card is on the first screen).
 4. **Design-token follow-through:** spacing still has many literal values; button heights and focus styles could come from tokens too. Check dark mode visually on the merged cards.
 5. **Accessibility verification with a real screen reader** (NVDA/VoiceOver); so far only automated browser tests and code review.
 6. **Real authentication for reviewers** (today the name is self-asserted) and storing the audit head hash outside the log.

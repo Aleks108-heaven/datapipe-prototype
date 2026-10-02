@@ -6,7 +6,7 @@ from pathlib import Path
 from .audit import AuditLog
 from .errors import DataPipeError
 from .ingest import read_source
-from .llm import AnthropicProvider, HeuristicProvider
+from .llm import AnthropicProvider, HeuristicProvider, OpenAICompatProvider
 from .mapping import approve_mapping, build_request, egress_mode, propose_mapping
 from .pipeline import run_pipeline, signoff
 from .policy import POLICIES, get_policy
@@ -46,10 +46,12 @@ def build_parser():
     m.add_argument("input")
     m.add_argument("--schema", required=True, help="target (registered) schema")
     m.add_argument("--policy", choices=sorted(POLICIES), default="business")
-    m.add_argument("--provider", choices=["heuristic", "anthropic"], default="heuristic",
-                   help="heuristic = offline, nothing leaves this machine (default)")
+    m.add_argument("--provider", choices=["heuristic", "anthropic", "openai-compat"], default="heuristic",
+                   help="heuristic = offline, nothing leaves this machine (default); openai-compat = Ollama, LM Studio, "
+                        "llama.cpp or a hosted free tier (loopback URL = stays local)")
     m.add_argument("--model", help="LLM model id (or env DATAPIPE_LLM_MODEL)")
-    m.add_argument("--base-url", default="https://api.anthropic.com")
+    m.add_argument("--base-url", help="API base URL (default: https://api.anthropic.com, or http://127.0.0.1:11434/v1 "
+                                      "for openai-compat, which is Ollama's default)")
     m.add_argument("--min-confidence", type=float, default=0.8)
     m.add_argument("--format", choices=["csv", "json", "jsonl", "sql"])
     m.add_argument("--table")
@@ -128,7 +130,10 @@ def _cmd_map(args):
     target = load_schema(args.schema)
     tbl = read_source(args.input, max_bytes=policy.max_file_bytes, fmt=args.format, table=args.table)
     if args.provider == "anthropic":
-        provider = AnthropicProvider(model=args.model, base_url=args.base_url)
+        provider = AnthropicProvider(model=args.model, base_url=args.base_url or "https://api.anthropic.com")
+    elif args.provider == "openai-compat":
+        kw = {"base_url": args.base_url} if args.base_url else {}
+        provider = OpenAICompatProvider(model=args.model, **kw)
     else:
         provider = HeuristicProvider()
     mode = egress_mode(policy, provider)          # raises if the policy forbids this provider
