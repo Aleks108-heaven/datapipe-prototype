@@ -122,18 +122,53 @@ When the provider missed a column or picked the wrong one, the reviewer can map 
 - Semantics (is `amount` gross or net?) must be encoded by a domain owner in the schema/metrics; the tool checks form, not meaning.
 - One input per run; no cross-file joins. Dates only (no timestamps/time zones). LLM layer covers schema mapping only (not analysis).
 - Schema regexes are trusted input (ReDoS possible from a hostile schema author). DuckDB memory is not capped.
-- Platforms: CI (`.github/workflows/ci.yml`) runs the full suite, browser tests included, on Ubuntu, macOS and Windows with Python 3.10 and 3.13; all 281 tests passed on all six combinations in two consecutive runs. The audit-log lock uses `flock` on POSIX and a byte-range lock on a separate `.lock` file on Windows. On some locked-down Windows machines DuckDB's native library can be blocked by application-control policies (seen on the author's PC; CI is unaffected).
+- Platforms: CI (`.github/workflows/ci.yml`) runs the full suite, browser tests included, on Ubuntu, macOS and Windows with Python 3.10 and 3.13; all tests passed on all six combinations in two consecutive runs at 281 tests, and again on every push since (288 tests at commit 4b09c8c, 2026-10-02). The audit-log lock uses `flock` on POSIX and a byte-range lock on a separate `.lock` file on Windows. On some locked-down Windows machines DuckDB's native library can be blocked by application-control policies (seen earlier on the author's PC; the 2026-10-02 local run was unaffected; CI is unaffected).
 
 ## Project status
 
-### Done (latest work session)
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (288 tests, green on Linux/macOS/Windows x Python 3.10/3.13). Not production-ready: see "Known limitations".
 
+**Roadmap**
+
+| Goal | State |
+| --- | --- |
+| Demo prototype (5 min, `python examples/demo.py`) | Ready; talk track in `examples/DEMO.md` |
+| Local / free model path | Done and run for real against Ollama; LM Studio not run yet |
+| Anthropic API path | Implemented, tested against a fake server only; first live run waits for the author's API credit |
+| Real team use | Needs reviewer authentication, off-log storage of the audit head hash, a live-API run, an independent security review |
+
+### Done (2026-10-02 session)
+
+- **Design review against a design-quality checklist** (hierarchy, function, experience, system, accessibility, feasibility; risk-ranked as impact x probability x detectability). Findings and fixes:
+  - *Hierarchy:* the reviewer's task (decide on cards that need a decision) was below provenance details; on a phone the first decision was over two screens down. Now a sticky status strip ("N need your decision, ...") sits at the top, proposer / policy / what-left-the-machine stay visible, and the rest is folded under "More about this proposal".
+  - *Phone:* a "Go to approve / reject" button (under 900 px) jumps to the action bar and focuses the reviewer field; scroll padding keeps focus out from under the sticky strip and the fixed bar.
+  - *Accessibility:* control borders were 1.4:1 against the surface; a `--line-strong` token (about 4:1 or better, light and dark) is now used for inputs, selects, secondary buttons and Include/Exclude (WCAG 1.4.11). Text contrast already passed AA in both themes.
+  - *Ambiguity:* a "How to read the evidence" legend; "Distinct values" and "Name similarity" use percent like the other chips.
+  - *Error recovery:* leaving, reloading or closing the page with unsubmitted decisions, manual mappings or a note asks first.
+  - Two stale screenshots in the repository root were replaced with current renders (light, phone).
+- **Local / free LLM provider** (`--provider openai-compat`): any OpenAI-compatible `/chat/completions` server (Ollama, LM Studio, llama.cpp, vLLM, hosted free tiers). A loopback URL is egress `local` (shapes only, payload still stored and shown in the UI, no key needed); other hosts are `cloud` and need `DATAPIPE_LLM_API_KEY`. `regulated` still refuses every LLM.
+- **First real-model run** (Ollama 0.35, Windows) found a real bug: a 3B model returned almost-valid JSON (a stray `]` per item) and the strict parser refused it. The parser stays strict; the provider now asks for schema-constrained output (`response_format`), with one retry without it for servers that reject the parameter. Results are in the LLM section above.
+- **Demo:** `examples/demo.py` runs map -> four-eyes approve -> run -> regulated block on dirty data -> sign-off (self-sign refused) -> audit verify -> tamper detected, in a temporary folder, and exits 1 if any step differs from the script. `--pause` for presenting, `--review` to end in the browser UI. `examples/DEMO.md` has the talk track and the honest caveats.
+- **Tests:** 281 -> 288 (provider cases, schema-constrained output and fallback, unsaved-work guard, status strip and jump, legend). The browser-test fixture now accepts `beforeunload` prompts and answers `confirm()` per test.
+- **Environment note:** a broken pytest plugin in some global Python installs (`langsmith` with a pydantic version mismatch) crashes pytest at start-up; run with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` or fix the packages. Unrelated to this project.
+
+### How to try the model paths
+
+    # Ollama (default URL http://127.0.0.1:11434/v1)
+    python -m datapipe map examples/sales_renamed.csv --schema examples/schema_sales.json --provider openai-compat --model qwen2.5-coder:14b-instruct-q4_K_M
+    # LM Studio: open the app, load a model, Developer tab -> start the local server (port 1234), then
+    python -m datapipe map examples/sales_renamed.csv --schema examples/schema_sales.json --provider openai-compat --base-url http://127.0.0.1:1234/v1 --model <id shown in LM Studio>
+    # Anthropic (when you have credit): set ANTHROPIC_API_KEY
+    python -m datapipe map examples/sales_renamed.csv --schema examples/schema_sales.json --provider anthropic --model <model-id>
+    # add --dry-run to any of them to see exactly what would be sent
+
+### Done (earlier sessions)
 - **Windows support for the audit log.** `audit.py` picks `flock` (POSIX) or an `msvcrt` byte-range lock (Windows); schema paths returned by the review service always use `/`.
 - **Review UI accessibility** (`datapipe/webui/page.py`): real buttons for navigation (Enter/Space work), focus is kept across redraws, Include/Exclude is a proper radio group (one tab stop, arrow keys), route changes are announced through a small status region, the page title and focus follow the route, and timestamps are shown in UTC.
 - **Review UI structure:** the duplicated "Mappings" list and "Map columns yourself" table were merged into one card per schema column (evidence, decision, "use a different file column"). Cards are ordered by risk from the server's verdicts and stay put while the reviewer works; a summary line counts each group; a proposed target the schema does not list is still shown. Reject now says what it is missing.
 - **Bugs found and fixed by running the browser tests:** focus was pulled away from a field the reviewer was typing in; the action bar was rebuilt on every redraw and could swallow keystrokes; the HTTP server could reset connections on Windows when it refused a POST before reading its body (it now reads the bounded body first and has a 15 s socket timeout).
 - **Design tokens:** radius, tap-target, spacing and type-size values are tokens in the page CSS.
-- **Tests:** symlink cases skip their symlink part where the OS forbids symlinks (Windows without Developer Mode); browser tests updated for the merged layout. Last run on Windows: 236 passed, 45 failed - all 45 because the DuckDB stand-in cannot run queries, none for another reason.
+- **Tests:** symlink cases skip their symlink part where the OS forbids symlinks (Windows without Developer Mode); browser tests updated for the merged layout. At that time a local Windows run had 236 passed / 45 failed, all because DuckDB could not run on that machine; on 2026-10-02 the same PC ran all tests green.
 - **README corrections:** removed the contradiction about manual remapping.
 - **Continuous integration:** GitHub Actions runs the suite on Linux, macOS and Windows (Python 3.10 and 3.13). It found two real bugs that local runs had missed:
   - SQL-dump ingestion failed on Python 3.10, because `set_authorizer(None)` only clears the authorizer from 3.11 (on 3.10 it denies everything). It now installs an allow-all callback.
@@ -145,8 +180,9 @@ When the provider missed a column or picked the wrong one, the reviewer can map 
 2. ~~Warn before losing decisions~~ (done: leave/reload prompt while decisions, manual mappings or a note are unsubmitted; the decisions themselves are still not persisted across a reload).
 2b. ~~Control borders~~ (done: `--line-strong` token, >= 3:1, for inputs, selects, secondary buttons and Include/Exclude).
 3. ~~Phone layout~~ (done: the to-do count is a sticky strip at the top of the proposal, with a "Go to approve / reject" jump on phones; provenance details are folded so the first decision card is on the first screen).
-4. **Design-token follow-through:** spacing still has many literal values; button heights and focus styles could come from tokens too. Check dark mode visually on the merged cards.
+4. **Design-token follow-through:** spacing still has many literal values; button heights and focus styles could come from tokens too. (Dark mode was checked visually on 2026-10-02 and holds together.) The explainer paragraph above the cards is still long; the proposals list and the approved-result screen got less design attention than the detail view.
 5. **Accessibility verification with a real screen reader** (NVDA/VoiceOver); so far only automated browser tests and code review.
 6. **Real authentication for reviewers** (today the name is self-asserted) and storing the audit head hash outside the log.
 7. **CI follow-ups:** pin action versions to commit SHAs, add a dependency-audit step, and run the suite against the minimum supported DuckDB as well as the latest.
+7b. **Run LM Studio and the live Anthropic API once** and record the results next to the Ollama numbers; persist reviewer decisions across a reload (today only a warning).
 8. Items from "Known limitations" above (big files, SQL dump dialects, timestamps/time zones, analysis by LLM out of scope).
