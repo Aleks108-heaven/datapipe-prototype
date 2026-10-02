@@ -17,6 +17,8 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
     python -m datapipe signoff <run_id> --reviewer bob  # regulated runs need a *different* person
     python -m datapipe verify-audit
 
+A guided 5-minute walkthrough with a talk track: `python examples/demo.py --pause` (see [examples/DEMO.md](examples/DEMO.md)).
+
 Exit codes: 0 ok / pending sign-off, 1 failed, 2 blocked by policy, 3 schema needs confirmation.
 Each run writes `work/runs/<id>/` (`result.json`, `report.md`, `quarantine.csv`, `issues.json`) and appends to `work/audit.jsonl`.
 
