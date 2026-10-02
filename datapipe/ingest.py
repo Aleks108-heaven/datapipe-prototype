@@ -16,6 +16,8 @@ from pathlib import Path
 from .errors import IngestError
 
 SQL_TIMEOUT_SECONDS = 10
+SQL_MAX_DB_BYTES = 512 * 1024 * 1024          # what a dump may store in the sandbox database
+SQL_MAX_VALUE_BYTES = 32 * 1024 * 1024        # largest single value/expression result (Python 3.11+)
 
 
 @dataclass
@@ -226,6 +228,11 @@ def parse_sql_dump(text, table=None) -> RawTable:
     Denied: ATTACH/DETACH/PRAGMA/VIEW/TRIGGER/virtual tables/extension loading. A time limit stops runaway queries.
     """
     conn = sqlite3.connect(":memory:")
+    # The size limit applies to the dump FILE, but a tiny dump can expand: INSERT ... SELECT hex(randomblob(500000000)) builds
+    # a 1 GB value from 70 bytes. Cap the stored database and, where the Python version allows (3.11+), every single value.
+    conn.execute(f"PRAGMA max_page_count = {SQL_MAX_DB_BYTES // 4096}")      # runs before the authorizer is installed
+    if hasattr(conn, "setlimit"):
+        conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, SQL_MAX_VALUE_BYTES)
     deadline = time.monotonic() + SQL_TIMEOUT_SECONDS
     conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
     conn.set_authorizer(_authorizer)

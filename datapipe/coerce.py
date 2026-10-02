@@ -83,13 +83,19 @@ def _decimal(raw, scale):
         raise ValueError("not a valid decimal")
     if not value.is_finite():
         raise ValueError("not a finite decimal")
+    # Magnitude first, via adjusted() (the exponent of the leading digit): abs()/comparison/quantize on an extreme exponent such as
+    # 1e999999999 raise decimal.Overflow / InvalidOperation, which used to escape as a raw traceback.
+    if value.adjusted() >= DECIMAL_PRECISION - scale:
+        raise ValueError("decimal too large")
     exponent = value.as_tuple().exponent
     if exponent < 0 and -exponent > scale:
         # trailing zeros beyond the scale are harmless; anything else would be silently rounded
-        if value != value.quantize(Decimal(1).scaleb(-scale)):
+        try:
+            rounded_same = value == value.quantize(Decimal(1).scaleb(-scale))
+        except InvalidOperation:
+            raise ValueError("decimal out of the supported range")
+        if not rounded_same:
             raise ValueError(f"more than {scale} decimal places (would require rounding)")
-    if abs(value) >= Decimal(10) ** (DECIMAL_PRECISION - scale):
-        raise ValueError("decimal too large")
     return value
 
 

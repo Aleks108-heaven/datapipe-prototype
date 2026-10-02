@@ -16,6 +16,30 @@ class ProviderError(DataPipeError):
     """Provider failure. Messages never include request or response bodies."""
 
 
+_LOOPBACK = ("localhost", "127.0.0.1", "::1")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib follows 301/302/303 on a POST and re-sends the request headers - including x-api-key / Authorization - to
+    whatever host the Location names. An LLM endpoint has no reason to redirect, so a redirect is an error."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def _check_base_url(base_url):
+    """https everywhere; plain http only to this machine. Returns the lower-cased host. Keys must never travel in clear text."""
+    parts = urllib.parse.urlsplit(base_url)
+    host = (parts.hostname or "").lower()
+    if parts.scheme == "https" and host:
+        return host
+    if parts.scheme == "http" and host in _LOOPBACK:
+        return host
+    raise ProviderError("the LLM base URL must use https (plain http is accepted only for localhost / 127.0.0.1)")
+
+
 @dataclass
 class ProviderResult:
     mappings: list                      # [{"source","target","confidence","rationale"}]
@@ -90,6 +114,7 @@ class AnthropicProvider(LLMProvider):
         if not self.api_key:
             raise ProviderError("ANTHROPIC_API_KEY is not set")
         self.base_url = base_url.rstrip("/")
+        _check_base_url(self.base_url)
         self.timeout = timeout
         self.max_tokens = max_tokens
 
@@ -101,7 +126,7 @@ class AnthropicProvider(LLMProvider):
             headers={"content-type": "application/json", "x-api-key": self.api_key,
                      "anthropic-version": "2023-06-01"})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with _OPENER.open(req, timeout=self.timeout) as resp:
                 raw = resp.read(2_000_000)
         except urllib.error.HTTPError as exc:
             raise ProviderError(f"LLM API returned HTTP {exc.code}")
@@ -129,9 +154,13 @@ class OpenAICompatProvider(LLMProvider):
         if not self.model:
             raise ProviderError("no model configured: pass --model or set DATAPIPE_LLM_MODEL")
         self.base_url = base_url.rstrip("/")
-        host = urllib.parse.urlsplit(self.base_url).hostname or ""
-        self.locality = "local" if host in ("localhost", "127.0.0.1", "::1") else "cloud"
-        if self.locality == "cloud" and not self.api_key:
+        host = _check_base_url(self.base_url)
+        on_this_machine = host in _LOOPBACK
+        # Ollama (and similar) can proxy a model whose name ends in "cloud" (e.g. "gpt-oss:120b-cloud") to a remote service
+        # while the URL stays localhost: that is cloud egress, so it must not be recorded as "nothing left the machine".
+        proxies_to_cloud = re.search(r"(^|[:\-_/])cloud$", self.model.lower()) is not None
+        self.locality = "local" if on_this_machine and not proxies_to_cloud else "cloud"
+        if not on_this_machine and not self.api_key:
             raise ProviderError("DATAPIPE_LLM_API_KEY is not set (needed for a non-local endpoint)")
         self.timeout = timeout
         self.max_tokens = max_tokens
@@ -151,7 +180,7 @@ class OpenAICompatProvider(LLMProvider):
             headers["authorization"] = "Bearer " + self.api_key
         req = urllib.request.Request(self.base_url + "/chat/completions", data=json.dumps(payload).encode(),
                                      method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+        with _OPENER.open(req, timeout=self.timeout) as resp:
             return resp.read(2_000_000)
 
     def _complete(self, system, user):

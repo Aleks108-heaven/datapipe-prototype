@@ -13,6 +13,7 @@ from .errors import AnalysisError
 
 MAX_RESULT_ROWS = 10_000
 QUERY_TIMEOUT_SECONDS = 30
+MEMORY_LIMIT = "2GB"
 _ORDER_BY = re.compile(r"\border\s+by\b", re.I)
 
 
@@ -77,6 +78,7 @@ def build_engine(schema, valid_rows, policy):
         con.executemany(f"INSERT INTO data VALUES ({placeholders})",
                         [[r["_row"]] + [r[c.name] for c in cols] for r in valid_rows])
     con.execute("SET enable_external_access=false")
+    con.execute(f"SET memory_limit='{MEMORY_LIMIT}'")          # a crafted metric (cross joins, huge aggregates) fails instead of eating the machine
     con.execute("SET lock_configuration=true")
     return con, cols
 

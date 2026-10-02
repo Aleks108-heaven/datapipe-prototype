@@ -10,7 +10,53 @@ from pathlib import Path
 from .coerce import TYPES, DEFAULT_SCALE, parse_typed
 from .errors import SchemaError
 
+try:                                  # the regex parser is a private module; if it is unavailable the check is skipped
+    import re._parser as _sre_parse   # Python 3.11+
+except ImportError:                   # pragma: no cover - Python 3.10
+    import sre_parse as _sre_parse
+
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _nested_unbounded_repeat(pattern):
+    """True for the classic catastrophic-backtracking shape: an unbounded repeat whose body contains another unbounded
+    repeat, e.g. (a+)+ or (.*a)*. Not a complete ReDoS detector (overlapping alternations such as (a|a)* pass); it removes
+    the common footguns. Schema regexes remain trusted input - see the README."""
+    unbounded = _sre_parse.MAXREPEAT
+    repeats = tuple(getattr(_sre_parse, n) for n in ("MAX_REPEAT", "MIN_REPEAT") if hasattr(_sre_parse, n))
+
+    def has_unbounded(items):
+        for op, arg in items:
+            if op in repeats and arg[1] == unbounded:
+                return True
+            for sub in _children(op, arg):
+                if has_unbounded(sub):
+                    return True
+        return False
+
+    def _children(op, arg):
+        if op in repeats:
+            return [arg[2]]
+        if str(op) in ("SUBPATTERN",):
+            return [arg[-1]]
+        if str(op) == "BRANCH":
+            return list(arg[1])
+        if str(op) in ("ASSERT", "ASSERT_NOT"):
+            return [arg[1]]
+        return []
+
+    def walk(items):
+        for op, arg in items:
+            if op in repeats and arg[1] == unbounded and has_unbounded(arg[2]):
+                return True
+            if any(walk(sub) for sub in _children(op, arg)):
+                return True
+        return False
+
+    try:
+        return walk(_sre_parse.parse(pattern))
+    except Exception:                 # unknown parser internals: do not block the schema
+        return False
 PII_HINT_RE = re.compile(r"(e-?mail|phone|mobile|ssn|passport|birth|dob|address|iban|card|salary|name)", re.I)
 _TOP_KEYS = {"name", "version", "null_tokens", "columns", "provenance"}
 _COL_KEYS = {"name", "type", "source", "required", "unique", "pii", "min", "max", "scale",
@@ -146,6 +192,9 @@ def schema_from_dict(doc) -> Schema:
                 re.compile(col.pattern)
             except re.error as exc:
                 raise SchemaError(f"column {name!r}: invalid pattern ({exc})")
+            if _nested_unbounded_repeat(col.pattern):
+                raise SchemaError(f"column {name!r}: pattern repeats a group that itself repeats without limit "
+                                  "(e.g. '(a+)+'); this can take exponential time on crafted input. Use bounded repeats.")
         cols.append(col)
     prov = doc.get("provenance")
     if prov is not None and not isinstance(prov, dict):

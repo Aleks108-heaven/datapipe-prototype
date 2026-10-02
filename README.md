@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 288 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 322 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -50,6 +50,9 @@ Missing required columns, zero data rows, zero valid rows, and reconciliation mi
 - Error messages, audit records and reports never contain raw data values (tests enforce this, including SQL error text).
 - Quarantine CSV neutralises spreadsheet formula injection.
 - Audit log is hash-chained (tamper-evident) and written under a file lock.
+- LLM calls never follow redirects (a redirect would re-send the API key to another host), require https except for localhost, and a cloud-proxied model name (`...:cloud`) is recorded as cloud egress even behind a localhost URL.
+- A tiny SQL dump cannot expand into a huge database or value (database cap 512 MB; single value 32 MB on Python 3.11+).
+- Hostile numbers (`1e999999999`, 5000-digit integers) are rejected as bad values, never crash the run.
 
 ## LLM-assisted schema mapping
 
@@ -121,9 +124,38 @@ When the provider missed a column or picked the wrong one, the reviewer can map 
 - Auto-inference can only guess types; it cannot know meaning, uniqueness, or PII (it flags names that look like PII).
 - Semantics (is `amount` gross or net?) must be encoded by a domain owner in the schema/metrics; the tool checks form, not meaning.
 - One input per run; no cross-file joins. Dates only (no timestamps/time zones). LLM layer covers schema mapping only (not analysis).
-- Schema regexes are trusted input (ReDoS possible from a hostile schema author). DuckDB memory is not capped.
+- Schema regexes are still treated as trusted input: nested unbounded repeats such as `(a+)+` are now refused, but overlapping alternations such as `(a|a)*` are not detected, so a hostile schema author can still cause slow matches. DuckDB memory is capped at 2 GB per run (`analyze.MEMORY_LIMIT`).
 - Platforms: CI (`.github/workflows/ci.yml`) runs the full suite, browser tests included, on Ubuntu, macOS and Windows with Python 3.10 and 3.13; all tests passed on all six combinations in two consecutive runs at 281 tests, and again on every push since (288 tests at commit 4b09c8c, 2026-10-02). The audit-log lock uses `flock` on POSIX and a byte-range lock on a separate `.lock` file on Windows. On some locked-down Windows machines DuckDB's native library can be blocked by application-control policies (seen earlier on the author's PC; the 2026-10-02 local run was unaffected; CI is unaffected).
 
+## Security audit (2026-10-02)
+
+Scope: the whole code base, by reading the code and by running working attacks against it (not a substitute for an independent review). Dependencies (`duckdb`, `pytest`, `playwright`, latest versions) were checked with `pip-audit`: no known vulnerabilities. There is no `eval`/`exec`/`pickle`/`subprocess`/shell use anywhere in the package.
+
+**Attacks that were tried and failed (the defences held):** DuckDB metric SQL reading files (`read_text`, `read_csv`, `glob`), environment variables (`getenv` does not exist), `COPY`, `INSTALL`, `SET enable_external_access`, `PRAGMA` via a comment prefix, stacked and `WITH ... DELETE` statements; SQL dumps using `ATTACH`, `PRAGMA`, `load_extension`, `VIEW`, `TRIGGER`, virtual tables and a CPU bomb (stopped at the 10 s limit); a 10,000-digit integer; 100,000-level JSON nesting; the review server's secret-link, cookie, CSRF, Host and Origin checks.
+
+**Found, fixed and covered by `tests/test_security.py` (each was reproduced as a working attack first):**
+
+| # | Finding | Impact | Fix |
+| --- | --- | --- | --- |
+| 1 | A 301/302/303 answer to an LLM request was followed and the `x-api-key` / `Authorization` header was re-sent to the new host | API key leak to anyone who controls or compromises the endpoint | Redirects are never followed |
+| 2 | `http://` base URL accepted with an API key | Key sent in clear text | https required; plain http only for localhost / 127.0.0.1 / ::1 |
+| 3 | An Ollama cloud model (`gpt-oss:120b-cloud`) behind `http://127.0.0.1:11434` was recorded as `local` ("nothing left this machine") | False privacy claim in the audit trail | Model names ending in `cloud` are recorded as `cloud` |
+| 4 | JSON `1e999999999` in a decimal column raised `decimal.Overflow` and aborted the run with a raw traceback | One crafted file kills a run | Magnitude checked with `adjusted()` first; clean "decimal too large" |
+| 5 | Schema pattern `(a+)+$` takes exponential time (0.2 s, 1.1 s, 4.2 s at n = 22, 24, 26) | CPU denial of service by a hostile schema | Nested unbounded repeats refused at schema load (partial: see limitations) |
+| 6 | A 66-byte SQL dump built a 100 MB value (scales to GBs; the size limit only covered the file) | Memory exhaustion | Sandbox database capped at 512 MB, single value at 32 MB (3.11+) |
+| 7 | DuckDB had no memory cap | A crafted metric exhausts memory | `memory_limit` 2 GB; the query fails cleanly |
+| 8 | CI workflow token had default permissions | Wider blast radius if a step were compromised | `permissions: contents: read` |
+
+**Still open (not fixed):**
+
+- Identity is self-asserted (`--actor`, `--reviewer`): anyone who can run the tool or write the audit log can claim to be anyone, so four-eyes is a process control, not a security boundary. Real authentication is the biggest gap for the `regulated` tier.
+- The audit log is tamper-evident, not tamper-proof: removing its tail is invisible unless the head hash is stored elsewhere.
+- The review UI's secret link doubles as the session cookie value and lasts until the server stops; anyone who sees the link (terminal scrollback, shared screen) can act as the reviewer on that machine. Use `--reviewer` and keep the server short-lived.
+- A proposal file placed in the mappings folder is trusted if its hash seal is internally consistent (the seal proves it was not edited, not who wrote it).
+- Metric authors can read the DuckDB version and settings (`version()`, `duckdb_settings()`), which includes the working-folder path. Treat analysis files as trusted code.
+- Report tables print data values verbatim; a hostile value cannot execute anything but can distort the Markdown layout.
+- Dependencies are not pinned (`duckdb>=1.0`), there is no lock file, and `pip-audit` is not in CI; GitHub Actions are referenced by tag, not by commit SHA.
+- No independent penetration test or code review has been done.
 ## Project status
 
 **Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (288 tests, green on Linux/macOS/Windows x Python 3.10/3.13). Not production-ready: see "Known limitations".
