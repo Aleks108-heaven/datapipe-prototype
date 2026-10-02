@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 287 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 288 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -73,7 +73,7 @@ Design rules:
         python -m datapipe map new_file.csv --schema examples/schema_sales.json --provider openai-compat --model llama3.1
         # hosted: --base-url https://api.groq.com/openai/v1 --model <id>   with DATAPIPE_LLM_API_KEY set
 
-   A loopback URL (`localhost`, `127.0.0.1`) is recorded as egress `local`: shapes only, payload still stored in the proposal, nothing leaves the machine, no key needed. Any other host counts as `cloud` and follows the tier rules above. `regulated` still refuses every LLM. Verification does not change, so a weak small model can only produce more `needs_review`/rejected items, not wrong accepted ones; expect lower hit rates than a frontier model. Tested against a fake local server only, not against Ollama itself.
+   A loopback URL (`localhost`, `127.0.0.1`) is recorded as egress `local`: shapes only, payload still stored in the proposal, nothing leaves the machine, no key needed. Any other host counts as `cloud` and follows the tier rules above. `regulated` still refuses every LLM. Verification does not change, so a weak small model can only produce more `needs_review`/rejected items, not wrong accepted ones; expect lower hit rates than a frontier model. Tested against a fake server and, once, against a real Ollama 0.35 on Windows (2026-10-02, `examples/sales_renamed.csv`, 6 target columns): `qwen2.5-coder:14b` mapped 6/6 correctly (one flagged needs_review at 0.75; ~90 s on CPU/GPU of the author's PC), `granite-4.2-3b` mapped 5/6 and left a required column unmapped (blocking approval until a person maps it), `llama3.2` (3B) mapped 1/6. The provider asks the server for schema-constrained JSON (`response_format`), because small models otherwise emit almost-valid JSON that the strict parser rightly refuses; servers that reject the parameter get one retry without it. LM Studio (`--base-url http://127.0.0.1:1234/v1`) is the same protocol but has not been run yet.
 
 Limits of this layer: it was tested against a fake local API server and scripted replies, **not against the live API**;
 LLM confidence numbers are uncalibrated; two columns of the same type (e.g. net vs gross amount) cannot be told apart by value checks,

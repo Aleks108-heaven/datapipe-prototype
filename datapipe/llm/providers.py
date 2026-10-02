@@ -136,16 +136,36 @@ class OpenAICompatProvider(LLMProvider):
         self.timeout = timeout
         self.max_tokens = max_tokens
 
-    def _complete(self, system, user):
-        body = json.dumps({"model": self.model, "max_tokens": self.max_tokens, "temperature": 0, "stream": False,
-                           "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
+    # Small local models often emit almost-valid JSON (a stray bracket, prose around it). The parser stays strict; instead the
+    # server is asked to constrain the output to this schema (Ollama, LM Studio and several hosted tiers support it).
+    _SCHEMA = {"type": "json_schema", "json_schema": {"name": "column_mappings", "strict": True, "schema": {
+        "type": "object", "additionalProperties": False, "required": ["mappings"],
+        "properties": {"mappings": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["source", "target", "confidence", "rationale"],
+            "properties": {"source": {"type": "string"}, "target": {"type": "string"},
+                           "confidence": {"type": "number"}, "rationale": {"type": "string"}}}}}}}}
+
+    def _post(self, payload):
         headers = {"content-type": "application/json"}
         if self.api_key:
             headers["authorization"] = "Bearer " + self.api_key
-        req = urllib.request.Request(self.base_url + "/chat/completions", data=body, method="POST", headers=headers)
+        req = urllib.request.Request(self.base_url + "/chat/completions", data=json.dumps(payload).encode(),
+                                     method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            return resp.read(2_000_000)
+
+    def _complete(self, system, user):
+        payload = {"model": self.model, "max_tokens": self.max_tokens, "temperature": 0, "stream": False,
+                   "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                   "response_format": self._SCHEMA}
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read(2_000_000)
+            try:
+                raw = self._post(payload)
+            except urllib.error.HTTPError as exc:
+                if exc.code not in (400, 422):
+                    raise
+                del payload["response_format"]                   # this server does not support constrained output: ask once more
+                raw = self._post(payload)
         except urllib.error.HTTPError as exc:
             raise ProviderError(f"LLM API returned HTTP {exc.code}")
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:

@@ -219,9 +219,10 @@ def test_malformed_items_are_reported_in_the_proposal():
 
 # ---------------------------------------------------------------- the real HTTP provider, against a fake server
 class FakeAPI:
-    def __init__(self, reply=None, status=200, delay=0.0, raw=None):
+    def __init__(self, reply=None, status=200, delay=0.0, raw=None, reject_format=False):
         outer = self
         self.requests = []
+        self.reject_format = reject_format
         self.reply, self.status, self.delay, self.raw = reply, status, delay, raw
 
         class H(BaseHTTPRequestHandler):
@@ -229,6 +230,11 @@ class FakeAPI:
                 body = self.rfile.read(int(self.headers["content-length"]))
                 outer.requests.append({"path": self.path, "headers": dict(self.headers), "body": json.loads(body)})
                 time.sleep(outer.delay)
+                if outer.reject_format and "response_format" in outer.requests[-1]["body"]:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"unsupported")
+                    return
                 payload = outer.raw if outer.raw is not None else json.dumps(
                     {"content": [{"type": "text", "text": outer.reply}]}).encode()
                 self.send_response(outer.status)
@@ -343,6 +349,17 @@ def test_openai_compat_remote_needs_key_sends_bearer_and_is_cloud(api, monkeypat
     server = api(raw=json.dumps({"choices": [{"message": {"content": "{\"mappings\": []}"}}]}).encode())
     OpenAICompatProvider(model="m", api_key="k", base_url=server.url + "/v1").propose(build_request(table("a\n1\n"), TARGET, "shapes"))
     assert {k.lower(): v for k, v in server.requests[0]["headers"].items()}["authorization"] == "Bearer k"
+
+
+def test_openai_compat_asks_for_schema_constrained_output_and_falls_back_once(api):
+    good = json.dumps({"choices": [{"message": {"content": "{\"mappings\": []}"}}]}).encode()
+    s1 = api(raw=good)
+    OpenAICompatProvider(model="m", base_url=s1.url + "/v1").propose(build_request(table("a\n1\n"), TARGET, "shapes"))
+    fmt = s1.requests[0]["body"]["response_format"]
+    assert fmt["type"] == "json_schema" and fmt["json_schema"]["schema"]["required"] == ["mappings"]
+    s2 = api(raw=good, reject_format=True)                  # a server that does not know response_format: one retry without it
+    OpenAICompatProvider(model="m", base_url=s2.url + "/v1").propose(build_request(table("a\n1\n"), TARGET, "shapes"))
+    assert len(s2.requests) == 2 and "response_format" not in s2.requests[1]["body"]
 
 
 def test_openai_compat_policy_and_error_paths(api, monkeypatch):
