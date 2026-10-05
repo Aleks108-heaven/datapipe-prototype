@@ -197,7 +197,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - **First real-model run** (Ollama 0.35, Windows) found a real bug: a 3B model returned almost-valid JSON (a stray `]` per item) and the strict parser refused it. The parser stays strict; the provider now asks for schema-constrained output (`response_format`), with one retry without it for servers that reject the parameter. Results are in the LLM section above.
 - **Demo:** `examples/demo.py` runs map -> four-eyes approve -> run -> regulated block on dirty data -> sign-off (self-sign refused) -> audit verify -> tamper detected, in a temporary folder, and exits 1 if any step differs from the script. `--pause` for presenting, `--review` to end in the browser UI. `examples/DEMO.md` has the talk track and the honest caveats.
 - **Tests:** 281 -> 288 (provider cases, schema-constrained output and fallback, unsaved-work guard, status strip and jump, legend). The browser-test fixture now accepts `beforeunload` prompts and answers `confirm()` per test.
-- **Environment note:** a broken pytest plugin in some global Python installs (`langsmith` with a pydantic version mismatch) crashes pytest at start-up; run with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` or fix the packages. Unrelated to this project.
+- **Environment note:** a broken pytest plugin in some global Python installs (`langsmith` with a pydantic version mismatch) crashes pytest at start-up; `pyproject.toml` now switches that plugin off (`-p no:langsmith_plugin`), so plain `python -m pytest` works; if another global plugin breaks pytest, run with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` or use a virtual environment. Unrelated to this project.
 
 ### How to try the model paths
 

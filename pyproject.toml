@@ -12,4 +12,7 @@ test = ["pytest", "playwright"]
 datapipe = "datapipe.cli:main"
 
 [tool.pytest.ini_options]
+# langsmith ships a pytest plugin that crashes at start-up when its pydantic packages are mismatched (seen with scoop/global Python);
+# datapipe does not use it, so it is switched off. Harmless if langsmith is not installed.
+addopts = "-p no:langsmith_plugin"
 testpaths = ["tests"]
