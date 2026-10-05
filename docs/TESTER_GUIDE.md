@@ -12,9 +12,11 @@ python -m pip install duckdb
 ```
 Windows: use `python`. Mac/Linux: use `python3` if `python` is not found. Check it works: `python -m datapipe policies` should print three lines.
 
+**Shortcut:** if you were sent the standalone program instead (see INSTALL.md), skip 1 and 2: start it, then press *Create a fake sample file to try* in the app.
+
 ## 2. Make a fake file (never test with real people's data)
 ```
-python examples/make_synthetic_buyers.py buyers.csv --mb 20
+python -m datapipe sample buyers.csv --mb 20
 ```
 (`--mb 120` makes a file about the size of the real target. It runs in about 1.5 minutes and uses about 2.5 GB of RAM.)
 

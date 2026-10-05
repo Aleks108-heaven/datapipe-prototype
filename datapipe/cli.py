@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -87,6 +88,14 @@ def build_parser():
     rv.add_argument("--reviewer", help="lock the reviewer name for this session (otherwise the reviewer types it)")
     rv.add_argument("--verbose", action="store_true")
 
+    sm = sub.add_parser("sample", help="write a FAKE buyers file (with a few deliberate errors) to try datapipe without real data")
+    sm.add_argument("out")
+    size = sm.add_mutually_exclusive_group()
+    size.add_argument("--mb", type=float, help="approximate size in MB (default 5)")
+    size.add_argument("--rows", type=int)
+    sm.add_argument("--bad-percent", type=float, default=0.5)
+    sm.add_argument("--seed", type=int, default=1)
+
     ap = sub.add_parser("app", help="start the local app in your browser: run a file, see the results, review mappings")
     ap.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 = pick a free one)")
     ap.add_argument("--data-dir", action="append", default=[],
@@ -101,7 +110,17 @@ def build_parser():
     return p
 
 
+def _double_click_args():
+    """What the standalone program does when it is started with no arguments (a double-click): open the app, with the user's
+    files in ~/datapipe/files and the results in ~/datapipe/work."""
+    home = Path.home() / "datapipe"
+    (home / "files").mkdir(parents=True, exist_ok=True)
+    return ["--workdir", str(home / "work"), "app", "--data-dir", str(home / "files")]
+
+
 def main(argv=None):
+    if argv is None and len(sys.argv) == 1 and getattr(sys, "frozen", False):
+        argv = _double_click_args()
     args = build_parser().parse_args(argv)
     try:
         if args.cmd == "policies":
@@ -115,6 +134,11 @@ def main(argv=None):
         if args.cmd == "signoff":
             out = signoff(args.workdir, args.run_id, args.reviewer, args.note)
             print(f"signed off {out['run_id']} by {out['reviewer']} (audit {out['audit_hash'][:12]})")
+            return 0
+        if args.cmd == "sample":
+            from .sample import generate
+            n, size = generate(args.out, mb=None if args.rows else (args.mb or 5), rows=args.rows, bad_percent=args.bad_percent, seed=args.seed)
+            print(f"wrote {n:,} rows, {size / 1024 ** 2:.1f} MB of fake data -> {args.out}")
             return 0
         if args.cmd in ("review", "app"):
             return _cmd_review(args)
@@ -204,6 +228,12 @@ def _cmd_approve(args):
     return 0
 
 
+def _examples_dir():
+    """Example schemas and metrics: the bundled copy inside the standalone program, else ./examples."""
+    bundled = getattr(sys, "_MEIPASS", None)
+    return (Path(bundled) / "examples") if bundled else Path.cwd() / "examples"
+
+
 def _data_dirs(args, is_app):
     """Folders the app may read data files from. The app also has an 'inbox' inside the work folder: drop a file there
     (from Downloads, a USB stick, a mail attachment...) and it appears in the list after a refresh."""
@@ -218,7 +248,7 @@ def _data_dirs(args, is_app):
 def _cmd_review(args):
     from .webui import make_server
     is_app = args.cmd == "app"
-    examples = Path.cwd() / "examples"
+    examples = _examples_dir()
     try:
         server = make_server(args.workdir, port=args.port, extra_dirs=args.dir, reviewer=args.reviewer,
                              verbose=args.verbose, data_dirs=_data_dirs(args, is_app),
@@ -230,7 +260,7 @@ def _cmd_review(args):
     print("datapipe app (local only - it listens on 127.0.0.1 and nowhere else)." if is_app
           else "Mapping review UI (local only - it listens on 127.0.0.1 and nowhere else).")
     print(f"Open this link in your browser:  {link}", flush=True)
-    if is_app and not args.no_browser:
+    if is_app and not args.no_browser and not os.environ.get("DATAPIPE_NO_BROWSER"):     # the variable is for tests and CI
         try:
             import webbrowser
             webbrowser.open(link)

@@ -12,6 +12,7 @@ import re
 import secrets
 import sys
 import traceback
+from pathlib import Path
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -19,12 +20,14 @@ from urllib.parse import parse_qs, urlsplit
 from .page import render_page
 from .runner import RunService
 from .service import ApiError, ReviewService
+from .settings import SettingsStore
 
 MAX_BODY = 64 * 1024
 _ID = r"[0-9a-f]{64}"
 _ROUTE_ONE = re.compile(rf"^/api/proposals/({_ID})$")
 _ROUTE_ACT = re.compile(rf"^/api/proposals/({_ID})/(approve|reject|check)$")
 _ROUTE_DOWNLOAD = re.compile(r"^/api/run/download/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/([a-z_.]+)$")
+_ROUTE_METRIC = re.compile(r"^/api/run/metrics/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/(?:([A-Za-z0-9_-]{1,80})\.csv|(all)\.zip)$")
 COOKIE = "dp_session"
 
 
@@ -34,11 +37,24 @@ class ReviewServer(ThreadingHTTPServer):
     # port that is already being served, so the printed link silently talks to the wrong process (401 on every try).
     allow_reuse_address = os.name != "nt"
 
-    def __init__(self, addr, service, token, csrf, verbose=False, runner=None):
+    def __init__(self, addr, service, token, csrf, verbose=False, runner=None, settings=None):
         self.service, self.token, self.csrf, self.verbose, self.runner = service, token, csrf, verbose, runner
+        self.settings = settings
         super().__init__(addr, Handler)
         self.port = self.server_address[1]
         self.allowed_hosts = {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
+
+    def settings_info(self):
+        import platform
+        import duckdb
+        from .. import __version__
+        from ..policy import POLICIES
+        runner = self.runner
+        return {"version": __version__, "python": platform.python_version(), "duckdb": duckdb.__version__,
+                "system": f"{platform.system()} {platform.release()}", "frozen": bool(getattr(sys, "frozen", False)),
+                "workdir": str(runner.workdir) if runner else "", "folders": [str(d) for d in runner.data_dirs] if runner else [],
+                "policies": {p.name: {"max_file_mb": p.max_file_bytes // 1024 ** 2, "max_memory_gb": p.max_memory_bytes // 1024 ** 3,
+                                      "mask_pii": p.mask_pii} for p in POLICIES.values()}}
 
     @property
     def url(self):
@@ -109,7 +125,8 @@ class Handler(BaseHTTPRequestHandler):
                                       "text/plain; charset=utf-8")
                 nonce = secrets.token_urlsafe(16)
                 fixed = self.server.service.fixed_reviewer or ""
-                page = render_page(nonce, self.server.csrf, html.escape(fixed, quote=True))
+                theme = self.server.settings.get()["theme"] if self.server.settings else "system"
+                page = render_page(nonce, self.server.csrf, html.escape(fixed, quote=True), theme)
                 csp = (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
                        "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
                 return self._send(200, page.encode(), "text/html; charset=utf-8", csp=csp)
@@ -117,6 +134,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(401, "not authenticated")
             if url.path.startswith("/api/run/"):
                 return self._run_get(url)
+            if url.path in ("/api/settings", "/api/settings/audit"):
+                return self._settings_get(url.path)
             if url.path == "/api/proposals":
                 return self._json(200, self.server.service.list_proposals())
             m = _ROUTE_ONE.match(url.path)
@@ -138,11 +157,28 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, runner.status())
         if url.path == "/api/run/result":
             return self._json(200, runner.result(parse_qs(url.query).get("run", [""])[0]))
+        m = _ROUTE_METRIC.match(url.path)
+        if m:
+            run_id, name, zipped = m.groups()
+            if zipped:
+                return self._send(200, runner.metrics_zip(run_id), "application/zip",
+                                  {"Content-Disposition": f'attachment; filename="{run_id}-metrics.zip"'})
+            return self._send(200, runner.metric_csv(run_id, name), "text/csv; charset=utf-8",
+                              {"Content-Disposition": f'attachment; filename="{run_id}-{name}.csv"'})
         m = _ROUTE_DOWNLOAD.match(url.path)
         if m:
             path, ctype = runner.download_path(m.group(1), m.group(2))
             return self._send_file(path, ctype, f"{m.group(1)}-{m.group(2)}")
         return self._error(404, "not found")
+
+    def _settings_get(self, path):
+        if self.server.settings is None:
+            return self._error(404, "not found")
+        if path == "/api/settings":
+            return self._json(200, {"settings": self.server.settings.get(), "info": self.server.settings_info()})
+        from ..audit import AuditLog
+        ok, n, msg = AuditLog(self.server.settings.path.parent / "audit.jsonl").verify()
+        return self._json(200, {"ok": ok, "records": n, "message": msg})
 
     def _send_file(self, path, ctype, download_name):
         """Stream a file (a cleaned dataset can be hundreds of MB, so never read it into memory)."""
@@ -209,9 +245,12 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._error(400, "body is not valid JSON")
             path = urlsplit(self.path).path
-            if path in ("/api/run/start", "/api/run/draft-schema", "/api/run/check") and self.server.runner is not None:
+            if path == "/api/settings" and self.server.settings is not None:
+                return self._json(200, {"settings": self.server.settings.update(payload)})
+            if path in ("/api/run/start", "/api/run/draft-schema", "/api/run/check", "/api/run/sample") and self.server.runner is not None:
                 runner = self.server.runner
-                action = {"/api/run/start": runner.start, "/api/run/draft-schema": runner.draft_schema, "/api/run/check": runner.check}[path]
+                action = {"/api/run/start": runner.start, "/api/run/draft-schema": runner.draft_schema, "/api/run/check": runner.check,
+                          "/api/run/sample": lambda _payload: runner.make_sample()}[path]
                 return self._json(200, action(payload))
             m = _ROUTE_ACT.match(path)
             if not m:
@@ -240,6 +279,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def make_server(workdir, *, port=0, extra_dirs=(), reviewer=None, token=None, verbose=False, data_dirs=(), config_dirs=()):
     service = ReviewService(workdir, extra_dirs=extra_dirs, fixed_reviewer=reviewer, data_dirs=data_dirs)
-    runner = RunService(workdir, data_dirs=data_dirs, config_dirs=config_dirs)
+    settings = SettingsStore(Path(workdir).resolve())
+    runner = RunService(workdir, data_dirs=data_dirs, config_dirs=config_dirs, settings=settings)
     return ReviewServer(("127.0.0.1", port), service, token or secrets.token_urlsafe(24),
-                        secrets.token_urlsafe(24), verbose=verbose, runner=runner)
+                        secrets.token_urlsafe(24), verbose=verbose, runner=runner, settings=settings)

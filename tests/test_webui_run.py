@@ -272,3 +272,226 @@ def test_the_app_command_also_watches_an_inbox_folder_in_the_work_folder(tmp_pat
     assert dirs == [tmp_path / "mine", tmp_path / "work" / "inbox"] and (tmp_path / "work" / "inbox").is_dir()
     assert _data_dirs(Namespace(data_dir=[], workdir=str(tmp_path / "w2")), False)[0].is_dir()      # review: current folder, no inbox
     assert not (tmp_path / "w2" / "inbox").exists()
+
+# ---------------------------------------------------------------- metrics as CSV
+def test_metrics_download_as_csv_files_and_as_one_zip(app):
+    import io
+    import zipfile
+    c = Client(app).login()
+    _, o = c.json("GET", "/api/run/options")
+    st = run_and_wait(c, o)
+    _, r = c.json("GET", f"/api/run/result?run={st['run_id']}")
+    name = next(iter(r["metrics"]))
+    status, headers, body = c.req("GET", f"/api/run/metrics/{st['run_id']}/{name}.csv")
+    assert status == 200 and "attachment" in headers["content-disposition"] and headers["content-type"].startswith("text/csv")
+    assert body.startswith(b"\xef\xbb\xbf")                                   # byte-order mark: Excel reads non-ASCII text correctly
+    import csv
+    rows = list(csv.reader(io.StringIO(body.decode("utf-8-sig"))))
+    assert rows[0] == r["metrics"][name]["columns"] and len(rows) - 1 == r["metrics"][name]["total_rows"]
+    status, headers, body = c.req("GET", f"/api/run/metrics/{st['run_id']}/all.zip")
+    assert status == 200 and headers["content-type"] == "application/zip"
+    names = zipfile.ZipFile(io.BytesIO(body)).namelist()
+    assert sorted(names) == sorted(f"{n}.csv" for n in r["metrics"])
+
+
+@pytest.mark.parametrize("path", ["/api/run/metrics/20260101T000000Z-aaaaaa/x.csv", "/api/run/metrics/../x.csv",
+                                  "/api/run/metrics/20260101T000000Z-aaaaaa/..%2f..%2faudit.csv", "/api/run/metrics/nope/all.zip"])
+def test_metrics_downloads_cannot_leave_the_run_folders(app, path):
+    assert Client(app).login().req("GET", path)[0] in (400, 404)
+
+
+def test_csv_cells_that_a_spreadsheet_would_run_as_formulas_are_neutralised_but_numbers_are_exact():
+    from datapipe.webui.runner import RunService
+    body = RunService._csv_bytes({"columns": ["a", "b", "c"], "rows": [["=1+1", -5, "-12.50"], ["@x", 1.5, None], ["plain", 0, "+49 30"]]})
+    assert body.decode("utf-8-sig").splitlines() == ["a,b,c", "'=1+1,-5,-12.50", "'@x,1.5,", "plain,0,+49 30"]
+
+
+# ---------------------------------------------------------------- settings (the gear)
+def test_settings_defaults_save_and_survive_a_restart(app):
+    c = Client(app).login()
+    status, d = c.json("GET", "/api/settings")
+    assert status == 200 and d["settings"] == {"actor": "", "policy": "business", "max_file_mb": None, "max_memory_gb": None, "theme": "system"}
+    assert d["info"]["workdir"] == str(app.work.resolve()) and "business" in d["info"]["policies"]
+    status, res = c.json("POST", "/api/settings", {"actor": "  Ana   Silva ", "policy": "regulated", "theme": "dark", "max_file_mb": 50, "max_memory_gb": 8})
+    assert status == 200 and res["settings"]["actor"] == "Ana Silva" and res["settings"]["max_memory_gb"] == 8
+    assert json.loads((app.work / "settings.json").read_text())["policy"] == "regulated"
+    from datapipe.webui.settings import SettingsStore
+    assert SettingsStore(app.work).get()["theme"] == "dark"                 # a new process would read the same file
+    _, o = c.json("GET", "/api/run/options")
+    assert o["settings"]["policy"] == "regulated"
+
+
+@pytest.mark.parametrize("bad", [{"policy": "none"}, {"theme": "neon"}, {"max_file_mb": 0}, {"max_file_mb": -5}, {"max_file_mb": "lots"},
+                                 {"max_file_mb": True}, {"max_memory_gb": 0.01}, {"max_memory_gb": 99999}, {"actor": "x" * 81}, {"actor": 5}])
+def test_settings_reject_nonsense_and_save_nothing(app, bad):
+    c = Client(app).login()
+    status, res = c.json("POST", "/api/settings", bad)
+    assert status == 400 and res["error"]
+    assert not (app.work / "settings.json").exists()
+
+
+def test_settings_need_login_and_csrf_and_a_damaged_file_falls_back(app):
+    c = Client(app).login()
+    assert Client(app).req("GET", "/api/settings")[0] == 401
+    assert c.req("POST", "/api/settings", {"theme": "dark"}, headers={"X-DataPipe-CSRF": "wrong"})[0] == 403
+    app.work.mkdir(parents=True, exist_ok=True)
+    (app.work / "settings.json").write_text('{"policy": "nonsense", "theme": "dark", "max_file_mb": "x"}')
+    s = c.json("GET", "/api/settings")[1]["settings"]
+    assert s["policy"] == "business" and s["theme"] == "dark" and s["max_file_mb"] is None       # bad keys ignored one by one
+    (app.work / "settings.json").write_text("not json at all")
+    assert c.json("GET", "/api/settings")[0] == 200
+
+
+def test_the_chosen_theme_is_in_the_page_before_it_paints(app):
+    c = Client(app).login()
+    assert b'data-theme' not in c.req("GET", "/")[2].split(b"<style")[0]
+    c.json("POST", "/api/settings", {"theme": "dark"})
+    head = c.req("GET", "/")[2].split(b"<style")[0]
+    assert b'<html lang="en" data-theme="dark">' in head and b'name="color-scheme" content="dark"' in head
+
+
+def test_a_limit_saved_in_settings_really_limits_the_run(app):
+    big = app.data / "big.csv"
+    big.write_text("order_id,region\n" + "".join(f"ORD{i:07d},North\n" for i in range(120_000)))       # about 1.7 MB
+    c = Client(app).login()
+    c.json("POST", "/api/settings", {"max_file_mb": 1})
+    _, o = c.json("GET", "/api/run/options")
+    st = run_and_wait(c, o, file=next(f for f in o["files"] if f["name"] == "big.csv")["id"])
+    _, r = c.json("GET", f"/api/run/result?run={st['run_id']}")
+    assert r["status"] == "FAILED" and any("max-file-mb" in x for x in r["reasons"])
+    assert json.loads((app.work / "runs" / st["run_id"] / "result.json").read_text())["policy"]["max_file_bytes"] == 1024 * 1024
+
+
+def test_audit_check_endpoint_reports_the_chain(app):
+    c = Client(app).login()
+    assert c.json("GET", "/api/settings/audit")[1]["ok"] is True                 # no log yet: nothing wrong
+    _, o = c.json("GET", "/api/run/options")
+    run_and_wait(c, o)
+    r = c.json("GET", "/api/settings/audit")[1]
+    assert r["ok"] and r["records"] >= 2
+    log = app.work / "audit.jsonl"
+    log.write_text(log.read_text().replace("run_started", "run_edited", 1))
+    assert c.json("GET", "/api/settings/audit")[1]["ok"] is False
+
+
+def test_gear_settings_and_csv_buttons_in_the_browser(app):
+    from playwright.sync_api import expect, sync_playwright
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+        except Exception as exc:
+            pytest.skip(f"Chromium not available: {exc}")
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{app.port}/?t={TOKEN}&go=run")
+        page.get_by_role("link", name="Settings").click()
+        expect(page.get_by_role("heading", name="Settings")).to_be_visible()
+        page.locator("#set-actor").fill("Ana Silva")
+        page.select_option("#set-policy", "low")
+        page.select_option("#set-theme", "dark")
+        page.locator("#set-save").click()
+        expect(page.locator("#set-msg")).to_contain_text("Saved")
+        expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+        page.locator("#set-maxfile").fill("0")
+        page.locator("#set-save").click()
+        expect(page.locator("#set-msg")).to_contain_text("between")                       # the server's reason, shown to the user
+        page.locator("#set-audit").click()
+        expect(page.locator("#set-audit-msg")).to_contain_text("OK")
+        page.reload()
+        expect(page.locator("html")).to_have_attribute("data-theme", "dark")             # still dark after a reload (saved on the server)
+        page.get_by_role("link", name="Run a file").click()
+        expect(page.locator("#run-actor")).to_have_value("Ana Silva")
+        expect(page.locator("#run-policy")).to_have_value("low")
+        page.select_option("#run-file", index=1)
+        page.select_option("#run-schema", index=1)
+        page.select_option("#run-analysis", index=1)
+        page.locator("#run-go").click()
+        expect(page.locator("#run-summary")).to_be_visible(timeout=60000)
+        with page.expect_download() as d:
+            page.locator("#dl-metrics-zip").click()
+        assert d.value.suggested_filename.endswith("-metrics.zip")
+        with page.expect_download() as d2:
+            page.get_by_role("link", name="Download this table (CSV)").first.click()
+        assert d2.value.suggested_filename.endswith(".csv")
+        assert page.evaluate("document.documentElement.scrollWidth - innerWidth") <= 1
+        browser.close()
+        assert errors == []
+
+
+
+# ---------------------------------------------------------------- level 2: built-in sample, standalone-program behaviour
+def test_cli_sample_writes_a_reproducible_fake_file_with_deliberate_errors(tmp_path, capsys):
+    from datapipe.cli import main
+    a, b = tmp_path / "a.csv", tmp_path / "b.csv"
+    assert main(["sample", str(a), "--rows", "500"]) == 0 and main(["sample", str(b), "--rows", "500"]) == 0
+    assert a.read_bytes() == b.read_bytes()                                         # same seed, same file
+    text = a.read_text(encoding="utf-8")
+    assert text.startswith("buyer_id,full_name,email,") and "example.com" in text and len(text.splitlines()) >= 500
+    assert "wrote 500 rows" in capsys.readouterr().out
+
+
+def test_the_moved_generator_gives_the_same_bytes_as_the_example_script(tmp_path):
+    import subprocess
+    import sys
+    from conftest import ROOT
+    script = tmp_path / "s.csv"
+    subprocess.run([sys.executable, str(ROOT / "examples" / "make_synthetic_buyers.py"), str(script), "--rows", "300", "--seed", "7"], check=True, capture_output=True)
+    from datapipe.sample import generate
+    generate(tmp_path / "p.csv", rows=300, seed=7)
+    assert script.read_bytes() == (tmp_path / "p.csv").read_bytes()
+
+
+def test_double_click_arguments_create_the_folders_and_start_the_app(tmp_path, monkeypatch):
+    from pathlib import Path
+    from datapipe.cli import _double_click_args, build_parser
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    args = _double_click_args()
+    assert (tmp_path / "datapipe" / "files").is_dir()
+    parsed = build_parser().parse_args(args)
+    assert parsed.cmd == "app" and parsed.workdir == str(tmp_path / "datapipe" / "work") and parsed.data_dir == [str(tmp_path / "datapipe" / "files")]
+
+
+def test_bundled_examples_folder_is_used_inside_the_standalone_program(tmp_path, monkeypatch):
+    import sys
+    from datapipe.cli import _examples_dir
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert _examples_dir() == tmp_path / "examples"
+    monkeypatch.delattr(sys, "_MEIPASS")
+    assert _examples_dir().name == "examples"
+
+
+def test_the_sample_endpoint_creates_numbered_files_the_app_can_list_and_run(app):
+    shutil.copy(EX / "schema_buyers.json", app.data)
+    shutil.copy(EX / "analysis_buyers.json", app.data)
+    c = Client(app).login()
+    status, first = c.json("POST", "/api/run/sample", {})
+    assert status == 200 and first["name"] == "buyers_sample.csv" and first["rows"] > 10_000 and (app.data / "buyers_sample.csv").is_file()
+    status, second = c.json("POST", "/api/run/sample", {})
+    assert second["name"] == "buyers_sample-2.csv"                                   # never overwrites
+    _, o = c.json("GET", "/api/run/options")
+    assert {"buyers_sample.csv", "buyers_sample-2.csv"} <= {f["name"] for f in o["files"]}
+    status, fit = c.json("POST", "/api/run/check", {"file": first["id"]})
+    assert fit["best"]["name"] == "schema_buyers.json" and fit["best"]["missing_required_count"] == 0
+    assert Client(app).req("POST", "/api/run/sample", {})[0] == 401
+
+
+def test_sample_button_fills_the_form_and_picks_the_matching_schema_and_metrics(app):
+    from playwright.sync_api import expect, sync_playwright
+    shutil.copy(EX / "schema_buyers.json", app.data)
+    shutil.copy(EX / "analysis_buyers.json", app.data)
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+        except Exception as exc:
+            pytest.skip(f"Chromium not available: {exc}")
+        page = browser.new_page()
+        page.goto(f"http://127.0.0.1:{app.port}/?t={TOKEN}&go=run")
+        page.get_by_role("button", name="Create a fake sample file to try").click()
+        expect(page.locator("#run-file")).to_have_value(re.compile(r".+"))
+        expect(page.locator("#run-file option:checked")).to_contain_text("buyers_sample.csv")
+        expect(page.locator("#run-schema option:checked")).to_contain_text("schema_buyers.json")
+        expect(page.locator("#run-analysis option:checked")).to_contain_text("analysis_buyers.json")
+        expect(page.locator("#run-go")).to_be_enabled()
+        browser.close()
+

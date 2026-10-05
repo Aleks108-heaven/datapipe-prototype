@@ -12,3 +12,8 @@ desktop.ini
 /buyers*.csv
 /data/
 /*.local.csv
+
+# build output of the standalone program
+/dist/
+/build/
+*.spec

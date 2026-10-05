@@ -22,7 +22,19 @@ Your browser opens the app. Put your data files in **`~/datapipe/files`** (Windo
 
 You also need a **schema** for each kind of file (what every column should look like). In the app: choose the file, then *Draft a schema from the chosen file*, review the draft, and pick it. Examples are in the repository's `examples/` folder.
 
+## Or: the standalone program (no Python needed)
+A single file, about 25 MB, built for Windows, Mac (Apple silicon) and Linux by the *build standalone program* workflow on GitHub
+(Actions tab, then *Run workflow*; the files appear as downloads at the bottom of the run, and as a Release when a version tag is pushed).
+
+- **Windows:** `datapipe-windows.exe`. Double-click it. Windows may say *"Windows protected your PC"* because the file is not signed: choose *More info*, then *Run anyway*.
+- **Mac:** `datapipe-macos-arm64.tar.gz`. Unpack it (double-click), then in Terminal: `xattr -d com.apple.quarantine datapipe` and `./datapipe` (or right-click, Open). Intel Macs: use the pip install above.
+- **Linux:** `datapipe-linux-x86_64.tar.gz`. `tar xzf datapipe-linux-x86_64.tar.gz && ./datapipe`
+
+Started without arguments it opens the app in your browser. A black window stays open showing the link; close it to stop the app. Your files go in `~/datapipe/files`, results in `~/datapipe/work`. It starts in a few seconds (it unpacks itself each time). With arguments it works exactly like the `datapipe` command, for example `datapipe.exe sample test.csv --mb 5`.
+
+**First time, no files?** On the *Run a file* page press **Create a fake sample file to try**: it writes a 2 MB file of invented buyers into your files folder and selects the matching example schema and metrics. The ⚙ **Settings** button holds your name, the default policy, size and memory limits, light/dark appearance, and a check of the audit log.
+
 ## What is not available yet
-- No standalone `.exe` / `.app` and no signed installer: Python must be installed. (Planned once a few testers have tried it.)
+- No signed installer, so Windows and Mac warn about an unknown publisher (code-signing certificates cost money). No Intel-Mac build.
 - Tested on Windows; Mac and Linux are covered by the automated tests on GitHub but have not been tried by hand.
 - Excel and Numbers files are not read directly: export to CSV first.

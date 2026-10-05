@@ -5,11 +5,11 @@ put into the page with textContent / createTextNode. There is no innerHTML, no e
 """
 
 _TEMPLATE = r"""<!doctype html>
-<html lang="en">
+<html lang="en"{{THEME_ATTR}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="{{SCHEME}}">
 <meta name="csrf" content="{{CSRF}}">
 <meta name="fixed-reviewer" content="{{FIXED}}">
 <title>datapipe</title>
@@ -24,12 +24,24 @@ _TEMPLATE = r"""<!doctype html>
   --tap:44px; --tap-sm:40px; --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:48px; --fs-xs:.8rem; --fs-sm:.9rem; --fs-md:.9rem; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){
-  :root{
+  :root:not([data-theme=light]){
     --bg:#131312; --surface:#1d1d1b; --text:#ecece7; --muted:#a4a49c; --line:#383832;
     --line-strong:#8c8c84;
     --accent:#7ea3ff; --accent-ink:#0d1526;
     --ok:#77d296; --ok-bg:#15301e; --warn:#f2bd5f; --warn-bg:#33270e; --bad:#ff9087; --bad-bg:#3b1a17;
   }
+}
+:root[data-theme=dark]{
+  --bg:#131312; --surface:#1d1d1b; --text:#ecece7; --muted:#a4a49c; --line:#383832;
+  --line-strong:#8c8c84;
+  --accent:#7ea3ff; --accent-ink:#0d1526;
+  --ok:#77d296; --ok-bg:#15301e; --warn:#f2bd5f; --warn-bg:#33270e; --bad:#ff9087; --bad-bg:#3b1a17;
+}
+:root[data-theme=light]{
+  --bg:#f6f6f3; --surface:#ffffff; --text:#1b1b19; --muted:#63635d; --line:#dcdcd4;
+  --line-strong:#76766e;   /* control boundaries: >= 3:1 on surface and page (WCAG 1.4.11); --line stays for decorative card edges */
+  --accent:#2757d6; --accent-ink:#ffffff;
+  --ok:#17692f; --ok-bg:#e4f3e8; --warn:#8a5200; --warn-bg:#fff1d0; --bad:#a8231b; --bad-bg:#fce6e3;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -144,7 +156,8 @@ button.small{padding:var(--s2) var(--s3);min-height:var(--tap-sm);font-size:var(
 .statusline input{width:auto}
 .jump{display:none}
 @media (max-width:899px){.jump{display:inline-block}}
-header.top nav{display:flex;gap:var(--s2)}
+header.top nav{display:flex;gap:var(--s2);flex:1}
+header.top nav a.gear{margin-left:auto;gap:var(--s1)}
 header.top nav a{color:var(--text);text-decoration:none;padding:var(--s2) var(--s3);border-radius:var(--r-md);min-height:var(--tap-sm);display:inline-flex;align-items:center}
 header.top nav a[aria-current=page]{background:var(--accent);color:var(--accent-ink);font-weight:650}
 header.top nav a:focus-visible,a.dl:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
@@ -152,6 +165,7 @@ header.top nav a:focus-visible,a.dl:focus-visible{outline:3px solid var(--accent
 .runfield select,.runfield input{width:100%}
 a.dl{display:inline-flex;align-items:center;min-height:var(--tap);padding:var(--s2) var(--s4);border:1px solid var(--line-strong);border-radius:var(--r-md);color:var(--text);text-decoration:none}
 a.dl:hover{border-color:var(--accent)}
+a.dl.small{min-height:var(--tap-sm);font-size:var(--fs-sm);margin-top:var(--s2)}
 .tablecard{overflow-x:auto}
 table.metric{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
 table.metric caption{text-align:left;font-weight:650;padding-bottom:var(--s2);text-transform:capitalize}
@@ -194,7 +208,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
 </head>
 <body>
 <header class="top"><h1>datapipe</h1>
-<nav aria-label="Sections"><a href="#/run" id="nav-run">Run a file</a><a href="#/" id="nav-review">Review mappings</a></nav>
+<nav aria-label="Sections"><a href="#/run" id="nav-run">Run a file</a><a href="#/" id="nav-review">Review mappings</a><a href="#/settings" id="nav-settings" class="gear" aria-label="Settings"><span aria-hidden="true">⚙</span> Settings</a></nav>
 <span class="sub" id="whoami"></span></header>
 <main id="app"></main>
 <div id="status" class="sr-only" role="status" aria-live="polite"></div>
@@ -759,7 +773,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     NEEDS_SCHEMA_CONFIRMATION: ['b-warn', 'Schema needs confirming', 'Review the schema, then run again.']
   };
   var RUN_ID_RE = /^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$/;
-  var runForm = { file: '', schema: '', analysis: '', policy: 'business', actor: '' };
+  var runForm = { file: '', schema: '', analysis: '', policy: '', actor: '' };
   var POLICY_TEXT = {
     low: 'Low: personal columns are kept as they are. Use for data that is not sensitive.',
     business: 'Business: personal columns are masked in the outputs. A small share of bad rows is tolerated (5%).',
@@ -784,7 +798,9 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var heading = h('h2', { text: 'Run a file' });
     app.appendChild(heading);
     arrived('Run a file', heading, 'Run a file');
-    if (!runForm.actor) runForm.actor = o.default_actor || '';
+    var st = o.settings || {};
+    if (!runForm.actor) runForm.actor = st.actor || o.default_actor || '';
+    if (!runForm.policy) runForm.policy = st.policy || 'business';
     var files = h('select', { id: 'run-file' }, h('option', { value: '', text: o.files.length ? 'Choose a file…' : 'No data files found' }), o.files.map(opt));
     var schemas = h('select', { id: 'run-schema' }, h('option', { value: '', text: o.schemas.length ? 'Choose a schema…' : 'No schema files found' }), o.schemas.map(opt));
     var analyses = h('select', { id: 'run-analysis' }, h('option', { value: '', text: 'No metrics (cleaning only)' }), o.analyses.map(opt));
@@ -792,6 +808,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var actor = h('input', { id: 'run-actor', type: 'text', maxlength: '80', autocomplete: 'off', value: runForm.actor });
     var go = h('button', { type: 'button', class: 'primary', id: 'run-go', text: 'Run' });
     var draft = h('button', { type: 'button', class: 'secondary small', id: 'run-draft', text: 'Draft a schema from the chosen file' });
+    var sample = h('button', { type: 'button', class: 'secondary small', id: 'run-sample', text: 'Create a fake sample file to try' });
     var msg = h('div', { class: 'small', id: 'run-msg', role: 'status' });
     var policyNote = h('div', { class: 'small muted', id: 'policy-note' });
     var resultBox = h('div', { id: 'run-result' });
@@ -804,7 +821,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var fitSeq = 0;
     function refresh() {
       remember();
-      policyNote.textContent = POLICY_TEXT[policy.value] || '';
+      policyNote.textContent = (POLICY_TEXT[policy.value] || '') + (st.max_file_mb ? ' Your Settings limit files to ' + st.max_file_mb + ' MB.' : '') + (st.max_memory_gb ? ' Memory limit from Settings: ' + st.max_memory_gb + ' GB.' : '');
       go.disabled = !(files.value && schemas.value && actor.value.trim());
       draft.disabled = !files.value;
     }
@@ -817,7 +834,12 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         if (mine !== fitSeq || !r.known) return;
         var best = r.best, ch = r.chosen;
         if (!schemas.value && best && best.missing_required_count === 0) {
-          schemas.value = best.id; remember(); refresh(); checkFit(); return;                  // nothing chosen yet: pick the schema that fits
+          schemas.value = best.id;                                                              // nothing chosen yet: pick the schema that fits...
+          if (!analyses.value) {                                                                 // ...and the metrics file that goes with it (schema_x.json -> analysis_x.json)
+            var twin = best.name.replace(/^schema_/, 'analysis_');
+            Array.prototype.forEach.call(analyses.options, function (op) { if (op.text.indexOf(twin + ' ') === 0) analyses.value = op.value; });
+          }
+          remember(); refresh(); checkFit(); return;
         }
         if (ch && ch.missing_required_count === 0) {
           fit.className = 'small ok-note';
@@ -844,7 +866,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         field('Schema (what each column should look like)', 'run-schema', schemas, 'No schema yet? Choose the file, then use the draft button below.'),
         field('Metrics (what the report should answer)', 'run-analysis', analyses),
         field('Policy', 'run-policy', policy), field('Your name (goes into the audit log)', 'run-actor', actor)),
-      fit, policyNote, h('div', { class: 'btns' }, go, draft), msg));
+      fit, policyNote, h('div', { class: 'btns' }, go, draft, sample), msg));
     app.appendChild(resultBox);
 
     var addBox = h('details', { id: 'add-files', class: 'folds' }, h('summary', { text: 'Add your own files' }),
@@ -866,6 +888,13 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     refresh();
     checkFit();
 
+    sample.addEventListener('click', function () {
+      sample.disabled = true; msg.textContent = 'Creating a fake file of about 2 MB…';
+      api('/api/run/sample', { method: 'POST', body: {} }).then(function (res) {
+        runForm.file = res.id; runForm.schema = ''; runForm.analysis = '';
+        showRun(runId);
+      }).catch(function (e) { msg.textContent = e.message; sample.disabled = false; });
+    });
     draft.addEventListener('click', function () {
       msg.textContent = 'Reading the file…'; draft.disabled = true;
       api('/api/run/draft-schema', { method: 'POST', body: { file: files.value } }).then(function (res) {
@@ -936,6 +965,11 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
       card.appendChild(h('p', { class: 'small muted', text: 'Download (saved copies are also in the run folder):' }));
       card.appendChild(links);
     }
+    var metricNames = Object.keys(r.metrics);
+    if (metricNames.length && RUN_ID_RE.test(r.run_id)) {
+      card.appendChild(h('p', { class: 'small muted', text: 'The metrics as CSV, to open in Excel or Numbers:' }));
+      card.appendChild(h('div', { class: 'btns' }, h('a', { class: 'dl', id: 'dl-metrics-zip', href: '/api/run/metrics/' + r.run_id + '/all.zip', text: 'All metrics (CSV files in a .zip)' })));
+    }
     card.appendChild(h('p', { class: 'small muted', text: 'Run folder: ' + r.folder }));
     if (r.outputs && r.outputs.clean_csv && r.policy !== 'low') card.appendChild(h('p', { class: 'small muted', text: 'Do not edit and re-save clean.csv: its checksum is recorded in the audit log.' }));
     box.appendChild(card);
@@ -945,22 +979,99 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
       var head = h('tr', null, m.columns.map(function (cn, i) { return h('th', { scope: 'col', class: numeric[i] ? 'num' : null, text: cn }); }));
       var table = h('table', { class: 'metric' }, h('caption', { text: name.replace(/_/g, ' ') }), h('thead', null, head),
         h('tbody', null, m.rows.map(function (row) { return h('tr', null, row.map(function (v, i) { return h('td', { class: numeric[i] ? 'num' : null, text: v }); })); })));
-      box.appendChild(h('div', { class: 'card tablecard' }, table,
+      var csvLink = (/^[A-Za-z0-9_-]{1,80}$/.test(name) && RUN_ID_RE.test(r.run_id)) ? h('a', { class: 'dl small', href: '/api/run/metrics/' + r.run_id + '/' + name + '.csv', text: 'Download this table (CSV)' }) : null;
+      box.appendChild(h('div', { class: 'card tablecard' }, table, csvLink,
         m.total_rows > m.rows.length ? h('p', { class: 'small muted', text: 'Showing the first ' + m.rows.length + ' of ' + m.total_rows + ' rows. The report file has all of them.' }) : null));
     });
     box.scrollIntoView({ block: 'start' });
+  }
+
+  // ------------------------------------------------------------------ settings view (the gear)
+  function applyTheme(theme) {
+    var root = document.documentElement;
+    if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme); else root.removeAttribute('data-theme');
+    document.querySelector('meta[name=color-scheme]').setAttribute('content', theme === 'light' ? 'light' : (theme === 'dark' ? 'dark' : 'light dark'));
+  }
+
+  function showSettings() {
+    var seq = ++navSeq;
+    clear(app);
+    app.appendChild(h('p', { class: 'muted', text: 'Loading…' }));
+    api('/api/settings').then(function (d) { if (seq === navSeq) buildSettings(d.settings, d.info); })
+      .catch(function (e) { if (seq === navSeq) showError(e); });
+  }
+
+  function buildSettings(s, info) {
+    clear(app);
+    var heading = h('h2', { text: 'Settings' });
+    app.appendChild(heading);
+    arrived('Settings', heading, 'Settings');
+    var name = h('input', { id: 'set-actor', type: 'text', maxlength: '80', autocomplete: 'off', value: s.actor || '', placeholder: 'Your name' });
+    var policy = h('select', { id: 'set-policy' }, Object.keys(info.policies).map(function (p) { return h('option', { value: p, text: p }); }));
+    policy.value = s.policy;
+    var maxFile = h('input', { id: 'set-maxfile', type: 'number', min: '1', step: 'any', inputmode: 'decimal', value: s.max_file_mb === null ? '' : String(s.max_file_mb) });
+    var maxMem = h('input', { id: 'set-maxmem', type: 'number', min: '0.5', step: 'any', inputmode: 'decimal', value: s.max_memory_gb === null ? '' : String(s.max_memory_gb) });
+    var theme = h('select', { id: 'set-theme' }, [['system', 'Follow my computer'], ['light', 'Light'], ['dark', 'Dark']].map(function (t) { return h('option', { value: t[0], text: t[1] }); }));
+    theme.value = s.theme;
+    var limitHint = h('div', { class: 'small muted', id: 'set-limit-hint' });
+    var msg = h('div', { class: 'small', id: 'set-msg', role: 'status' });
+    var save = h('button', { type: 'button', class: 'primary', id: 'set-save', text: 'Save settings' });
+    function hint() {
+      var p = info.policies[policy.value];
+      limitHint.textContent = 'Left empty, the ' + policy.value + ' policy allows files up to ' + p.max_file_mb + ' MB and an estimated ' + p.max_memory_gb + ' GB of memory. ' +
+        'Raise the memory limit only on a computer that really has that much free RAM (a file needs about 25 times its size).';
+    }
+    policy.addEventListener('change', hint); hint();
+    function num(input) { var v = input.value.trim(); return v === '' ? null : (isNaN(Number(v)) ? v : Number(v)); }
+    save.addEventListener('click', function () {
+      save.disabled = true; msg.textContent = 'Saving…';
+      api('/api/settings', { method: 'POST', body: { actor: name.value, policy: policy.value, theme: theme.value, max_file_mb: num(maxFile), max_memory_gb: num(maxMem) } })
+        .then(function (res) {
+          applyTheme(res.settings.theme);
+          runForm.actor = ''; runForm.policy = '';                       // the Run page re-reads its defaults
+          msg.textContent = 'Saved. The next run uses these settings.';
+        }).catch(function (e) { msg.textContent = e.message; })
+        .then(function () { save.disabled = false; });
+    });
+    app.appendChild(h('div', { class: 'card' },
+      h('p', { class: 'small muted', text: 'Saved in the work folder on this computer, so they are still here the next time you start the app.' }),
+      h('div', { class: 'runfields' },
+        field('Your name (default for new runs)', 'set-actor', name),
+        field('Default policy', 'set-policy', policy),
+        field('Largest file to accept, in MB (empty = policy limit)', 'set-maxfile', maxFile),
+        field('Memory limit in GB (empty = policy limit)', 'set-maxmem', maxMem),
+        field('Appearance', 'set-theme', theme)),
+      limitHint, h('div', { class: 'btns' }, save), msg));
+
+    var audit = h('button', { type: 'button', class: 'secondary small', id: 'set-audit', text: 'Check the audit log', onclick: function () {
+      auditMsg.textContent = 'Checking…';
+      api('/api/settings/audit').then(function (r) { auditMsg.textContent = (r.ok ? 'OK: ' : 'PROBLEM: ') + r.records + ' records. ' + r.message; })
+        .catch(function (e) { auditMsg.textContent = e.message; });
+    } });
+    var auditMsg = h('div', { class: 'small', id: 'set-audit-msg', role: 'status' });
+    function row(dt, dd) { return [h('dt', { text: dt }), h('dd', { text: dd })]; }
+    app.appendChild(h('div', { class: 'card' }, h('h3', { text: 'About this installation' }), h('dl', { class: 'meta' },
+      row('Version', 'datapipe ' + info.version + (info.frozen ? ' (standalone program)' : '')),
+      row('Engine', 'Python ' + info.python + ', DuckDB ' + info.duckdb),
+      row('System', info.system),
+      row('Work folder (results, audit log, settings)', info.workdir),
+      row('Folders it reads data from', info.folders.length ? info.folders.join('   ') : '(none)')),
+      h('div', { class: 'btns' }, audit), auditMsg));
   }
 
   // ------------------------------------------------------------------ routing
   function markNav(which) {
     document.getElementById('nav-run').setAttribute('aria-current', which === 'run' ? 'page' : 'false');
     document.getElementById('nav-review').setAttribute('aria-current', which === 'review' ? 'page' : 'false');
+    document.getElementById('nav-settings').setAttribute('aria-current', which === 'settings' ? 'page' : 'false');
   }
   function route() {
     var m = /^#\/p\/([0-9a-f]{64})$/.exec(location.hash);
     var r = /^#\/run(?:\/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}))?$/.exec(location.hash);
-    markNav(r ? 'run' : 'review');
-    if (r) showRun(r[1]);
+    var gear = location.hash === '#/settings';
+    markNav(gear ? 'settings' : (r ? 'run' : 'review'));
+    if (gear) showSettings();
+    else if (r) showRun(r[1]);
     else if (m && ID_RE.test(m[1])) showDetail(m[1]); else showList();
   }
   // Unsaved work (decisions, manual mappings, a typed note) lives only in this page: ask before reload, close or leaving the proposal.
@@ -986,6 +1097,9 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
 """
 
 
-def render_page(nonce: str, csrf: str, fixed_reviewer_escaped: str) -> str:
+def render_page(nonce: str, csrf: str, fixed_reviewer_escaped: str, theme: str = "system") -> str:
+    theme = theme if theme in ("light", "dark") else "system"          # only these three words ever reach the HTML
     return (_TEMPLATE.replace("{{NONCE}}", nonce).replace("{{CSRF}}", csrf)
-            .replace("{{FIXED}}", fixed_reviewer_escaped))
+            .replace("{{FIXED}}", fixed_reviewer_escaped)
+            .replace("{{THEME_ATTR}}", "" if theme == "system" else f' data-theme="{theme}"')
+            .replace("{{SCHEME}}", "light dark" if theme == "system" else theme))

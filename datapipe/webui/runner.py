@@ -6,20 +6,23 @@ from the run folder, so a finished run can be reopened later.
 """
 import csv
 import hashlib
+import io
 import json
 import re
 import threading
 import time
+import zipfile
 from pathlib import Path
 
 from ..errors import DataPipeError
 from ..identity import clean_name
 from ..ingest import read_source
 from ..audit import default_actor
-from ..pipeline import RUN_ID_RE, run_pipeline
+from ..pipeline import RUN_ID_RE, _formula_risk, run_pipeline
 from ..policy import POLICIES, get_policy
 from ..schema import infer_schema, load_schema
 from .service import ApiError
+from .settings import SettingsStore
 
 DATA_SUFFIXES = {".csv", ".tsv", ".jsonl", ".json", ".sql"}
 DOWNLOADS = {"clean.csv": "text/csv; charset=utf-8", "quarantine.csv": "text/csv; charset=utf-8",
@@ -54,8 +57,9 @@ def _rel_size(n):
 
 
 class RunService:
-    def __init__(self, workdir, data_dirs=(), config_dirs=()):
+    def __init__(self, workdir, data_dirs=(), config_dirs=(), settings=None):
         self.workdir = Path(workdir).resolve()
+        self.settings = settings or SettingsStore(self.workdir)
         self.data_dirs = [Path(d).resolve() for d in data_dirs]
         self.config_dirs = [self.workdir / "schemas"] + [Path(d).resolve() for d in list(config_dirs) + list(data_dirs)]
         self._lock = threading.Lock()
@@ -98,7 +102,7 @@ class RunService:
                 "policies": [{"name": p.name, "max_file_mb": p.max_file_bytes // 1024 ** 2, "mask_pii": p.mask_pii,
                               "needs_signoff": p.require_signoff} for p in POLICIES.values()],
                 "default_actor": default_actor(), "recent": self.recent(), "workdir": str(self.workdir),
-                "folders": [str(d) for d in self.data_dirs if d.is_dir()]}
+                "folders": [str(d) for d in self.data_dirs if d.is_dir()], "settings": self.settings.get()}
 
     @staticmethod
     def _pick(items, ident, what):
@@ -155,6 +159,43 @@ class RunService:
             raise ApiError(404, "not found")
         return path, DOWNLOADS[name]
 
+    # ------------------------------------------------------------ metrics as CSV (opens in Excel / Numbers)
+    def _metrics(self, run_id):
+        if not RUN_ID_RE.match(run_id or ""):
+            raise ApiError(404, "run not found")
+        try:
+            doc = json.loads((self._runs_dir() / run_id / "result.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise ApiError(404, "run not found")
+        return (doc.get("results") or {}).get("metrics") or {}
+
+    @staticmethod
+    def _csv_bytes(metric):
+        """UTF-8 with a byte-order mark (Excel on Windows otherwise garbles non-ASCII text). Numbers are written exactly;
+        text that a spreadsheet would run as a formula gets a leading apostrophe."""
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(metric["columns"])
+        for row in metric["rows"]:
+            w.writerow(["" if v is None else ("'" + v if isinstance(v, str) and _formula_risk(v) else v) for v in row])
+        return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+    def metric_csv(self, run_id, name):
+        metrics = self._metrics(run_id)
+        if name not in metrics:
+            raise ApiError(404, "metric not found")
+        return self._csv_bytes(metrics[name])
+
+    def metrics_zip(self, run_id):
+        metrics = self._metrics(run_id)
+        if not metrics:
+            raise ApiError(404, "this run has no metrics")
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, metric in metrics.items():
+                z.writestr(f"{re.sub(r'[^A-Za-z0-9_-]+', '_', name)[:80]}.csv", self._csv_bytes(metric))
+        return out.getvalue()
+
     # ------------------------------------------------------------ starting
     def status(self):
         with self._lock:
@@ -182,12 +223,15 @@ class RunService:
             if self._job["state"] == "running":
                 raise ApiError(409, "a run is already in progress; wait for it to finish (one at a time keeps memory use predictable)")
             self._job = {"state": "running", "started": time.time(), "file": file.name}
-        threading.Thread(target=self._work, args=(file, schema, analysis, policy, actor), daemon=True).start()
+        limits = self.settings.get()
+        threading.Thread(target=self._work, args=(file, schema, analysis, policy, actor, limits), daemon=True).start()
         return {"state": "running"}
 
-    def _work(self, file, schema, analysis, policy, actor):
+    def _work(self, file, schema, analysis, policy, actor, limits=None):
+        limits = limits or {}
         try:
-            res = run_pipeline(file, workdir=self.workdir, policy_name=policy, schema_path=schema, analysis_path=analysis, actor=actor)
+            res = run_pipeline(file, workdir=self.workdir, policy_name=policy, schema_path=schema, analysis_path=analysis, actor=actor,
+                               max_file_mb=limits.get("max_file_mb"), max_memory_gb=limits.get("max_memory_gb"))
             outcome = {"state": "done", "file": file.name, "run_id": res.run_id}
         except DataPipeError as exc:
             outcome = {"state": "error", "file": file.name, "error": str(exc)[:400]}
@@ -243,6 +287,25 @@ class RunService:
         chosen = by_id.get(str(payload.get("schema", "")))
         best = fits[0] if fits else None
         return {"known": True, "file_columns": len(header), "chosen": chosen, "best": best}
+
+    # ------------------------------------------------------------ a fake file to try the app with
+    def make_sample(self):
+        from ..sample import generate
+        folders = [d for d in self.data_dirs if d.is_dir()]
+        if not folders:
+            raise ApiError(409, "there is no data folder to put the sample file in")
+        target, n = folders[0], 1
+        out = target / "buyers_sample.csv"
+        while out.exists():
+            n += 1
+            out = target / f"buyers_sample-{n}.csv"
+        try:
+            rows, _ = generate(out, mb=2)
+        except OSError as exc:
+            raise ApiError(409, f"could not write the sample file: {exc.strerror or exc}")
+        data, _, _ = self._scan()
+        item = next((x for x in data if x["name"] == out.name), None)
+        return {"name": out.name, "id": item["id"] if item else "", "rows": rows}
 
     # ------------------------------------------------------------ drafting a schema
     def draft_schema(self, payload):
