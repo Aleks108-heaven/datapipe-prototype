@@ -186,3 +186,10 @@ def test_csv_values_with_edge_spaces_are_trimmed_and_the_file_says_so():
     assert tbl.columns == ["a", "b"] and tbl.rows[0] == {"a": "1", "b": "2"}
     assert any("2 record(s) or header(s)" in w and "' 5 ' is read as '5'" in w for w in tbl.warnings)
     assert parse_csv("a,b\n1,2\n").warnings == []
+
+
+def test_quarantine_shows_plain_negative_numbers_exactly_but_still_guards_formulas(tmp_path):
+    from datapipe.pipeline import _csv_safe
+    assert _csv_safe("-10.00") == "-10.00" and _csv_safe("+49 (0) 30-1234") == "+49 (0) 30-1234" and _csv_safe(None) == ""
+    for risky in ("=1+1", "@SUM(A1)", "-1+2", "+cmd|x", "\tx"):
+        assert _csv_safe(risky) == "'" + risky

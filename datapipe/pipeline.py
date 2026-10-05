@@ -52,7 +52,7 @@ def sha256_of(obj):
 def _csv_safe(value):
     """Neutralise spreadsheet formula injection in exported cells."""
     text = "" if value is None else str(value)
-    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+    return "'" + text if _formula_risk(text) else text          # plain numbers such as -10.00 are shown exactly as they were in the file
 
 
 def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis_path=None, fmt=None,
