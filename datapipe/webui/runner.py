@@ -237,7 +237,7 @@ class RunService:
             fits.append({"id": item["id"], "name": item["name"], "schema_columns": len(cols), "matched": len(cols) - len(missing),
                          "missing_required": required_missing[:12], "missing_required_count": len(required_missing),
                          "extra_in_file": sum(1 for h in header if h not in known)})
-        fits.sort(key=lambda f: (f["missing_required_count"], -f["matched"], f["extra_in_file"]))
+        fits.sort(key=lambda f: (f["missing_required_count"], -f["matched"], f["extra_in_file"], "-DRAFT" in f["name"], f["name"]))   # on a tie, a reviewed schema beats a machine draft
         by_id = {f["id"]: f for f in fits}
         chosen = by_id.get(str(payload.get("schema", "")))
         best = fits[0] if fits else None
