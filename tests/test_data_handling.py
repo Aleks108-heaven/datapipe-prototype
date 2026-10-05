@@ -193,3 +193,14 @@ def test_quarantine_shows_plain_negative_numbers_exactly_but_still_guards_formul
     assert _csv_safe("-10.00") == "-10.00" and _csv_safe("+49 (0) 30-1234") == "+49 (0) 30-1234" and _csv_safe(None) == ""
     for risky in ("=1+1", "@SUM(A1)", "-1+2", "+cmd|x", "\tx"):
         assert _csv_safe(risky) == "'" + risky
+
+
+def test_products_buyers_example_schema_and_metrics_load_and_agree():
+    from datapipe.analyze import load_analysis
+    from datapipe.schema import load_schema
+    from conftest import EX
+    schema = load_schema(EX / "schema_products_buyers.json")
+    spec = load_analysis(EX / "analysis_products_buyers.json")
+    assert len(schema.columns) == 60 and [c.name for c in schema.columns if c.pii] == ["buyer_name", "city"]
+    assert sum(1 for c in schema.columns if c.unique) == 1
+    assert len(spec.metrics) == 11

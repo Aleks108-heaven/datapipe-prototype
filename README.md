@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 435 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 436 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -173,7 +173,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - No independent penetration test or code review has been done.
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (435 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (436 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 
@@ -215,6 +215,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - **Data-handling fixes, 2026-10-05:** (QA-023) JSON records in which two fields flatten to the same column name (`{"a":{"b":1},"a.b":2}`) are refused as bad rows instead of silently losing a value; (QA-024) only ASCII digits count as numbers, so `٠٧` can no longer pass as 7 and dodge the leading-zero rule; (QA-025) refused approvals, rejections and sign-offs are written to the audit log (`mapping_approval_refused`, `mapping_rejection_refused`, `signoff_refused`: who, which run or proposal, why); (QA-026) a damaged audit log (torn last line, non-record line, non-UTF-8) gives a clear message and is never appended to, `verify-audit` reports how many records were intact before the problem, and a run that cannot start no longer leaves an empty run folder; (QA-027) the report explains that "row N" is the N-th data record after the header (sheet row N+1), and lists problems one per line; (QA-028) a wrong command line exits with 64, so 2 always means "blocked by policy".
 - **Worth knowing:** leading and trailing spaces are trimmed from CSV headers and values before validation (a value of `" 5 "` is read as `5`). The run now reports how many records were affected as a warning.
 - **Small UI items:** spacing now uses a token scale (`--s1`..`--s6`, only hairlines and one bar clearance stay literal); the page has an inline icon (CSP `img-src data:`), which removes Firefox's favicon console message; forced-colours styling and the focus ring were checked in Chromium, Firefox and WebKit (not on real Windows High Contrast, Safari or a screen reader).
+- **Products x buyers x preferences example (2026-10-05):** `examples/schema_products_buyers.json` (60 columns: order line, product, buyer, stated preferences) and `examples/analysis_products_buyers.json` (stated vs actual product group and channel, revenue per currency, plus built-in data checks for the line-total formula, orders before sign-up, cancelled orders with a review, return flag). Run on a 7,000-row and a 328,022-row (119 MB) file: all rows valid, 0 reconciliation mismatches, 126 s for the large one.
 - **Review UI accessibility** (`datapipe/webui/page.py`): real buttons for navigation (Enter/Space work), focus is kept across redraws, Include/Exclude is a proper radio group (one tab stop, arrow keys), route changes are announced through a small status region, the page title and focus follow the route, and timestamps are shown in UTC.
 - **Review UI structure:** the duplicated "Mappings" list and "Map columns yourself" table were merged into one card per schema column (evidence, decision, "use a different file column"). Cards are ordered by risk from the server's verdicts and stay put while the reviewer works; a summary line counts each group; a proposed target the schema does not list is still shown. Reject now says what it is missing.
 - **Bugs found and fixed by running the browser tests:** focus was pulled away from a field the reviewer was typing in; the action bar was rebuilt on every redraw and could swallow keystrokes; the HTTP server could reset connections on Windows when it refused a POST before reading its body (it now reads the bounded body first and has a 15 s socket timeout).

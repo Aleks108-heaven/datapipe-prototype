@@ -1,0 +1,26 @@
+{
+  "metrics": [
+    {"name": "revenue_by_product_group_and_country", "description": "Delivered and shipped revenue (line_total, gross) per product group and country, per currency - currencies are never added together",
+     "sql": "SELECT currency, country, product_group, COUNT(*) AS lines, SUM(line_total) AS revenue FROM data WHERE order_status IN ('Delivered', 'Shipped') GROUP BY currency, country, product_group ORDER BY currency, country, product_group"},
+    {"name": "buyers_by_preferred_group", "description": "Distinct buyers per stated preference (Electrical / Produce / Both)",
+     "sql": "SELECT pref_product_group, COUNT(DISTINCT buyer_id) AS buyers FROM data GROUP BY pref_product_group ORDER BY pref_product_group"},
+    {"name": "stated_vs_actual_group", "description": "What buyers say they prefer against what they actually bought (order lines)",
+     "sql": "SELECT pref_product_group AS stated, product_group AS bought, COUNT(*) AS lines FROM data GROUP BY 1, 2 ORDER BY 1, 2"},
+    {"name": "stated_vs_actual_channel", "description": "Preferred channel against the channel actually used (order lines)",
+     "sql": "SELECT pref_channel AS stated, channel AS used, COUNT(*) AS lines FROM data GROUP BY 1, 2 ORDER BY 1, 2"},
+    {"name": "price_sensitivity_vs_discount", "description": "Average discount on the lines of buyers by price sensitivity",
+     "sql": "SELECT pref_price_sensitivity, COUNT(*) AS lines, ROUND(AVG(discount_pct), 2) AS avg_discount_pct FROM data GROUP BY 1 ORDER BY 1"},
+    {"name": "top_categories_by_age_group", "description": "Order lines per age group and category",
+     "sql": "SELECT age_group, category, COUNT(*) AS lines FROM data GROUP BY 1, 2 ORDER BY 1, lines DESC, 2"},
+    {"name": "return_rate_by_group", "description": "Share of lines returned, per product group",
+     "sql": "SELECT product_group, COUNT(*) AS lines, COUNT(*) FILTER (WHERE return_flag) AS returned FROM data GROUP BY 1 ORDER BY 1"},
+    {"name": "check_line_total_formula", "description": "Lines where line_total differs from quantity x price x (1-discount) x (1+tax) rounded to cents (expect 0)",
+     "sql": "SELECT COUNT(*) AS lines_off FROM data WHERE ABS(line_total - ROUND(quantity * unit_price * (1 - discount_pct / 100.0) * (1 + tax_rate_pct / 100.0), 2)) > 0.011"},
+    {"name": "check_order_before_signup", "description": "Lines dated before the buyer signed up (should be 0)",
+     "sql": "SELECT COUNT(*) AS lines_before_signup, COUNT(DISTINCT buyer_id) AS buyers FROM data WHERE order_date < signup_date"},
+    {"name": "check_cancelled_with_review", "description": "Cancelled orders that still carry a review score (should be 0)",
+     "sql": "SELECT COUNT(*) AS cancelled_with_review FROM data WHERE order_status = 'Cancelled' AND review_score IS NOT NULL"},
+    {"name": "check_returned_flag_agrees", "description": "Returned status and return_flag disagree (expect 0)",
+     "sql": "SELECT COUNT(*) AS disagree FROM data WHERE (order_status = 'Returned') <> return_flag"}
+  ]
+}
