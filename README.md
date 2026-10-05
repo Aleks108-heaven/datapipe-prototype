@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 484 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 486 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -178,7 +178,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - No independent penetration test or code review has been done.
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (484 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (486 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 
