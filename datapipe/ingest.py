@@ -33,14 +33,37 @@ class RawTable:
 
 
 # ---------------------------------------------------------------- entry point
+# Measured on CPython 3.14: a parsed row costs ~400 bytes plus ~170 bytes per cell (dict + str objects), and a second
+# copy exists while the rows are typed. A 99 MB, 6-column file peaked at 2.4 GB; 4 million one-character rows at 2.3 GB.
+MEM_PER_ROW = 400
+MEM_PER_CELL = 170
+_MEM_CHECK_EVERY = 20_000
+
+
+def estimate_memory(rows, columns):
+    return rows * (MEM_PER_ROW + MEM_PER_CELL * max(1, columns))
+
+
+def _check_memory(rows, columns, limit, partial=False):
+    if limit is None:
+        return
+    need = estimate_memory(rows, columns)
+    if need > limit:
+        gb = 1024 ** 3
+        raise IngestError(
+            f"the file has {'more than ' if partial else ''}{rows:,} rows x {columns} columns, which would need about "
+            f"{need / gb:.1f} GB of memory; the policy allows {limit / gb:.1f} GB "
+            "(raise it with --max-memory-gb if this computer has the RAM, or split the file)")
+
+
 def read_source(path, *, max_bytes, fmt=None, encoding=None, delimiter=None,
-                table=None, records_path=None) -> RawTable:
+                table=None, records_path=None, max_memory_bytes=None) -> RawTable:
     path = Path(path)
     if not path.is_file():
         raise IngestError(f"input is not a regular file: {path.name}")
     size = path.stat().st_size
     if size > max_bytes:
-        raise IngestError(f"file is {size} bytes; policy limit is {max_bytes}")
+        raise IngestError(f"file is {size} bytes; policy limit is {max_bytes} (raise it with --max-file-mb)")
     if size == 0:
         raise IngestError("file is empty")
     data = path.read_bytes()
@@ -49,7 +72,8 @@ def read_source(path, *, max_bytes, fmt=None, encoding=None, delimiter=None,
     text = _decode(data, encoding)
     fmt = fmt or detect_format(path, text)
     if fmt == "csv":
-        tbl = parse_csv(text, delimiter=delimiter or ("\t" if path.suffix.lower() == ".tsv" else None))
+        tbl = parse_csv(text, delimiter=delimiter or ("\t" if path.suffix.lower() == ".tsv" else None),
+                        max_memory_bytes=max_memory_bytes)
     elif fmt == "json":
         tbl = parse_json(text, records_path=records_path)
     elif fmt == "jsonl":
@@ -58,6 +82,8 @@ def read_source(path, *, max_bytes, fmt=None, encoding=None, delimiter=None,
         tbl = parse_sql_dump(text, table=table)
     else:
         raise IngestError(f"unsupported format {fmt!r}")
+    # CSV was already checked while streaming; the exact total is checked once more for every format
+    _check_memory(len(tbl.rows) + len(tbl.structural_issues), len(tbl.columns), max_memory_bytes)
     tbl.source_sha256 = hashlib.sha256(data).hexdigest()
     tbl.source_bytes = size
     return tbl
@@ -82,7 +108,7 @@ def _decode(data, encoding):
 
 
 # ---------------------------------------------------------------- CSV / TSV
-def parse_csv(text, delimiter=None) -> RawTable:
+def parse_csv(text, delimiter=None, max_memory_bytes=None) -> RawTable:
     warnings = []
     if delimiter is None:
         first_line = text.split("\n", 1)[0]
@@ -110,6 +136,8 @@ def parse_csv(text, delimiter=None) -> RawTable:
             if not record:          # blank line
                 continue
             n += 1
+            if n % _MEM_CHECK_EVERY == 0:
+                _check_memory(n, len(header), max_memory_bytes, partial=True)    # stop early, before RAM runs out
             if len(record) != len(header):
                 issues.append((n, f"expected {len(header)} fields, found {len(record)}"))
                 continue

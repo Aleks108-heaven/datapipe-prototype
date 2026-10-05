@@ -134,7 +134,9 @@ def test_list_shows_proposals_with_counts_and_opens_detail(page, ui):
     row.click()
     page.wait_for_selector("#items .card")
     assert page.locator("#items .card").count() == 6
-    expect(card(page, "order_date").get_by_role("radio", name="Exclude")).to_have_attribute("aria-checked", "true")
+    for label in ("Include", "Exclude"):                                      # nothing is chosen yet for an item that needs review (QA-013)
+        expect(card(page, "order_date").get_by_role("radio", name=label)).to_have_attribute("aria-checked", "false")
+    expect(card(page, "order_date")).to_contain_text("Not decided yet")
     expect(card(page, "amount").get_by_role("radio", name="Include")).to_have_attribute("aria-checked", "true")
     page.locator("summary", has_text="Exactly what was sent").click()       # cloud provider: payload is inspectable
     expect(page.locator("#payload")).to_contain_text('"mode": "shapes"')
@@ -543,7 +545,135 @@ def test_status_strip_stays_visible_and_phone_can_jump_to_the_action_bar(page, u
 
 def test_evidence_legend_and_one_notation(page, ui):
     open_detail(page, ui, ui.remap)
-    expect(page.locator("#legend summary")).to_have_text("How to read the evidence")
+    expect(page.locator("#legend summary")).to_have_text("How to read this page")
     chips = page.locator(".evidence .chip").all_inner_texts()
     assert any(c.startswith("Distinct values: ") and c.endswith("%") for c in chips)
     assert all(c.endswith("%") for c in chips if c.startswith("Name similarity"))
+
+
+# ---------------------------------------------------------------- review fixes (QA-007 .. QA-021)
+def test_tampered_proposal_explains_why_nothing_can_be_clicked(page, ui):                       # QA-012
+    path = next(p for p in (ui.wd / "mappings").glob("*.json") if ui.good[:10] in p.name)
+    doc = json.loads(path.read_text())
+    doc["items"][0]["confidence"] = 0.5
+    path.write_text(json.dumps(doc))
+    open_detail(page, ui, ui.good)
+    page.locator("#reviewer").fill("bob")
+    page.locator("#note").fill("why not")
+    expect(page.locator("#reject")).to_be_disabled()
+    expect(page.locator("#why")).to_contain_text("neither approved nor rejected")
+    expect(page.locator("#summary")).to_contain_text("Integrity check failed")
+    assert "verified" not in page.locator("#summary").text_content()                          # no "6 verified" under a red banner
+
+
+def test_arrow_keys_move_focus_with_the_selection_and_the_ring_is_visible(page, ui):          # QA-008
+    open_detail(page, ui, ui.good)
+    seg = card(page, "order_date").locator(".seg button")
+    seg.first.focus()
+    for key, want in (("ArrowRight", "Exclude"), ("ArrowLeft", "Include"), ("ArrowDown", "Exclude"), ("ArrowUp", "Include")):
+        page.keyboard.press(key)
+        expect(card(page, "order_date").get_by_role("radio", name=want)).to_have_attribute("aria-checked", "true")
+        expect(card(page, "order_date").get_by_role("radio", name=want)).to_be_focused()
+    ring = page.evaluate("""() => { const s = getComputedStyle(document.activeElement); return [s.outlineColor, s.backgroundColor, s.outlineOffset]; }""")
+    assert ring[0] != ring[1] and ring[2].startswith("-"), ring         # not blue-on-blue, and inside the box so overflow:hidden cannot clip it
+
+
+def test_undecided_items_show_no_choice_until_the_reviewer_makes_one(page, ui):                # QA-013
+    open_detail(page, ui, ui.good)
+    c = card(page, "order_date")
+    expect(c.locator("[data-role=undecided]")).to_be_visible()
+    expect(page.locator("#summary")).to_contain_text("1 need your decision")
+    c.get_by_role("radio", name="Exclude").click()                                            # an explicit "no" is a decision too
+    expect(c.get_by_role("radio", name="Exclude")).to_have_attribute("aria-checked", "true")
+    expect(c.locator("[data-role=undecided]")).to_have_count(0)
+    expect(page.locator("#summary")).to_contain_text("0 need your decision")
+
+
+@pytest.mark.parametrize("viewport,bar_fixed", [({"width": 390, "height": 844}, False), ({"width": 1366, "height": 650}, True)])
+def test_first_decision_is_on_the_first_screen(page, ui, viewport, bar_fixed):                 # QA-009
+    open_detail(page, ui, ui.good, viewport=viewport)
+    box = card(page, "order_date").locator(".seg").bounding_box()
+    limit = viewport["height"]
+    if bar_fixed:
+        limit = page.locator(".actionbar").bounding_box()["y"]
+        assert page.locator(".actionbar").bounding_box()["height"] < 130                      # one row, not a 150px block
+    assert box["y"] + box["height"] <= limit, (box, limit)
+
+
+def test_after_approving_focus_lands_on_the_outcome_and_the_command_works_from_anywhere(page, ui):   # QA-020, QA-010
+    open_detail(page, ui, ui.good)
+    card(page, "order_date").get_by_role("radio", name="Include").click()
+    page.locator("#reviewer").fill("bob")
+    page.locator("#note").fill("checked")
+    page.locator("#approve").click()
+    expect(page.locator("#result")).to_be_focused()
+    cmd = page.locator("#result .cmd").inner_text()
+    import re
+    schema = re.search(r'--schema (\S+)', cmd).group(1)
+    assert Path(schema).is_absolute() and Path(schema).exists(), cmd
+    assert f"--workdir {ui.wd.resolve()}" in cmd or f'--workdir "{ui.wd.resolve()}"' in cmd, cmd
+
+
+def test_long_file_names_do_not_widen_the_page(page, ui):                                      # QA-014
+    long_name = "a_very_long_file_name_" + "x" * 90 + ".csv"
+    p, _ = make_proposal(ui.wd, NEEDS_REVIEW, name=long_name)
+    for width in (320, 360):
+        open_detail(page, ui, p["proposal_sha256"], viewport={"width": width, "height": 700})
+        assert page.evaluate("document.documentElement.scrollWidth - innerWidth") <= 1, width
+        page.goto(f"{ui.base}#/")
+        page.wait_for_selector(".card.click")
+        assert page.evaluate("document.documentElement.scrollWidth - innerWidth") <= 1, width
+
+
+def test_text_scales_with_the_reader_text_size_setting(page, ui):                              # QA-016
+    open_detail(page, ui, ui.good)
+    page.evaluate("document.documentElement.style.fontSize = '32px'")                         # what a reader who doubled the default sees
+    sizes = page.evaluate("""() => [parseFloat(getComputedStyle(document.querySelector('.metaline')).fontSize),
+                                    parseFloat(getComputedStyle(document.querySelector('#approve')).fontSize)]""")
+    assert sizes[0] < sizes[1] <= 32.5, sizes                                                  # helper text stays smaller than buttons
+
+
+def test_each_column_card_is_a_named_section_with_a_heading(page, ui):                         # QA-018
+    open_detail(page, ui, ui.good)
+    cards = page.locator("#items section.card")
+    assert cards.count() == 6
+    headings = page.locator("#items section.card h3").all_inner_texts()
+    assert sorted(headings) == sorted(["order_id", "customer_email", "region", "amount", "order_date", "paid"])
+    for i in range(cards.count()):
+        labelled = cards.nth(i).get_attribute("aria-labelledby")
+        assert labelled and page.locator(f"#{labelled}").count() == 1
+
+
+def test_hidden_direction_characters_in_a_column_name_are_made_visible(page, ui):              # QA-021
+    tbl = parse_csv("Order No,Buyer Email,Area,Total (EUR),Ordered On,pa\u202edi\n1,a@b.co,N,1.0,2024-01-01,yes\n")
+    p, _ = make_proposal(ui.wd, GOOD[:5] + [m("pa\u202edi", "paid", 0.5)], tbl=tbl, name="bidi.csv")
+    open_detail(page, ui, p["proposal_sha256"])
+    shown = page.locator('.card[data-target="paid"] [data-role=source]').inner_text()
+    assert "\u202e" not in shown and "[U+202E]" in shown, repr(shown)
+
+
+def test_a_dead_server_gives_a_next_step_and_keeps_the_decisions(page, ui):                    # QA-011
+    open_detail(page, ui, ui.good)
+    card(page, "order_date").get_by_role("radio", name="Include").click()
+    page.locator("#reviewer").fill("bob")
+    page.locator("#note").fill("checked")
+    page.route("**/api/**", lambda route: route.abort())
+    page.locator("#approve").click()
+    expect(page.locator("#errbox")).to_contain_text("datapipe review")
+    expect(page.locator("#errbox")).to_contain_text("Nothing you entered")
+    expect(card(page, "order_date").get_by_role("radio", name="Include")).to_have_attribute("aria-checked", "true")
+    expect(page.locator("#note")).to_have_value("checked")
+
+
+def test_a_slow_list_answer_cannot_paint_over_the_proposal_that_was_opened(browser, ui):       # the flaky-test race
+    import time
+    ctx = browser.new_context()
+    pg = ctx.new_page()
+    pg.route("**/api/proposals", lambda route: (time.sleep(1.0), route.continue_()))           # only the LIST is slow
+    pg.goto(ui.url, wait_until="commit")
+    pg.goto(f"{ui.base}#/p/{ui.good}", wait_until="commit")
+    pg.wait_for_selector("#items .card")
+    pg.wait_for_timeout(1800)                                                                  # the late list answer has arrived by now
+    expect(pg.locator("#items .card").first).to_be_visible()
+    assert pg.locator("h2", has_text="Mapping proposals").count() == 0
+    ctx.close()

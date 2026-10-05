@@ -1,0 +1,21 @@
+{
+  "name": "buyers",
+  "version": 1,
+  "columns": [
+    {"name": "buyer_id", "type": "integer", "required": true, "unique": true, "min": 1, "description": "Unique buyer number"},
+    {"name": "full_name", "type": "string", "pii": true, "max_length": 80, "description": "Buyer name"},
+    {"name": "email", "type": "string", "pii": true, "pattern": "[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}", "description": "Buyer email"},
+    {"name": "country", "type": "string", "required": true,
+     "allowed": ["US", "CA", "MX", "BR", "GB", "DE", "FR", "ES", "IT", "PL", "IN", "JP", "AU", "ZA"], "description": "Country code"},
+    {"name": "age_group", "type": "string", "required": true, "allowed": ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]},
+    {"name": "preferred_category", "type": "string", "required": true,
+     "allowed": ["electronics", "fashion", "home", "beauty", "sports", "books", "toys", "grocery", "travel", "garden"],
+     "description": "What the buyer prefers to buy"},
+    {"name": "preferred_channel", "type": "string", "allowed": ["email", "sms", "app", "store", "phone"]},
+    {"name": "preference_score", "type": "decimal", "scale": 2, "min": "0", "max": "100", "description": "Strength of the preference, 0-100"},
+    {"name": "monthly_budget", "type": "decimal", "scale": 2, "min": "0", "description": "Typical monthly spend"},
+    {"name": "last_purchase_date", "type": "date", "format": "%Y-%m-%d"},
+    {"name": "newsletter", "type": "boolean", "required": true},
+    {"name": "notes", "type": "string", "max_length": 200}
+  ]
+}

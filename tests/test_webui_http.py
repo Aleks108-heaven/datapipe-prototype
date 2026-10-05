@@ -234,3 +234,11 @@ def test_four_eyes_error_is_a_clean_400_over_http(srv):
 
 
 _ = GOOD
+
+
+def test_a_second_review_server_cannot_take_a_port_that_is_already_served(srv, wd, capsys):      # QA-007
+    with pytest.raises(OSError):
+        make_server(wd, port=srv.port, token="b" * 32)                  # on Windows SO_REUSEADDR used to let this succeed silently
+    from datapipe.cli import main
+    assert main(["--workdir", str(wd), "review", "--port", str(srv.port)]) != 0
+    assert "cannot listen on 127.0.0.1" in capsys.readouterr().err

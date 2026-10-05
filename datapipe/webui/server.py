@@ -7,6 +7,7 @@ size-limited bodies; no wildcard CORS; generic 500s (no stack traces to the brow
 import hmac
 import html
 import json
+import os
 import re
 import secrets
 import sys
@@ -27,7 +28,9 @@ COOKIE = "dp_session"
 
 class ReviewServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # On Linux/macOS SO_REUSEADDR only lets a restart reuse a port in TIME_WAIT. On Windows it lets a SECOND server bind a
+    # port that is already being served, so the printed link silently talks to the wrong process (401 on every try).
+    allow_reuse_address = os.name != "nt"
 
     def __init__(self, addr, service, token, csrf, verbose=False):
         self.service, self.token, self.csrf, self.verbose = service, token, csrf, verbose

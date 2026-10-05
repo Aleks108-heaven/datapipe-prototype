@@ -20,7 +20,7 @@ _TEMPLATE = r"""<!doctype html>
   --accent:#2757d6; --accent-ink:#ffffff;
   --ok:#17692f; --ok-bg:#e4f3e8; --warn:#8a5200; --warn-bg:#fff1d0; --bad:#a8231b; --bad-bg:#fce6e3;
   --radius:12px; --r-sm:8px; --r-md:10px; --r-pill:999px;
-  --tap:44px; --tap-sm:40px; --s2:8px; --s3:12px; --fs-xs:.8rem; --fs-sm:.85rem; --fs-md:.9rem; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --tap:44px; --tap-sm:40px; --s2:8px; --s3:12px; --fs-xs:.8rem; --fs-sm:.9rem; --fs-md:.9rem; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){
   :root{
@@ -32,18 +32,30 @@ _TEMPLATE = r"""<!doctype html>
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text);font:1rem/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}  /* rem, so the reader's text-size setting scales everything together */
 header.top{display:flex;align-items:center;gap:var(--s3);padding:14px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
 header.top h1{font-size:1.05rem;margin:0;font-weight:650}
 header.top .sub{color:var(--muted);font-size:var(--fs-sm)}
-main{max-width:920px;margin:0 auto;padding:16px 16px 48px}
+main{max-width:920px;margin:0 auto;padding:16px 16px 48px;overflow-wrap:anywhere}      /* file names and column names are one long token: they must wrap, never widen the page (WCAG 1.4.10) */
 a,button{font:inherit}
-button.back{background:none;border:0;color:var(--accent);display:inline-block;padding:6px 0;cursor:pointer;text-align:left}
+button{overflow-wrap:normal}
+.titlerow{align-items:center;flex-wrap:nowrap}
+.titlerow>.row{min-width:0;flex:1}
+.titlerow h2{margin:0}
+/* The three folded sections share one line; an open one takes the full width. */
+.folds{display:flex;flex-wrap:wrap;gap:0 20px;margin:0 0 8px}
+.folds details{margin:0;flex:0 0 auto}
+.folds details[open]{flex-basis:100%}
+.folds details>summary{padding:8px 0}
+button.back{background:none;border:0;color:var(--accent);display:inline-block;padding:6px 0;min-height:var(--tap);cursor:pointer;text-align:left}
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 h2[tabindex="-1"]:focus{outline:none}
 button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-h2{font-size:1.15rem;margin:28px 0 10px}
-h3{font-size:1rem;margin:0}
+h2{font-size:1.15rem;margin:28px 0 10px;overflow-wrap:anywhere}
+h3{font-size:1rem;margin:0;overflow-wrap:anywhere;min-width:0}
+h2.tight{margin-top:12px}
+::placeholder{color:var(--muted);opacity:1}                                   /* 4.5:1 on the field background in both themes */
+#result:focus{outline:none}
 .muted{color:var(--muted)}
 .small{font-size:var(--fs-sm)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:0 0 12px}
@@ -66,9 +78,9 @@ h3{font-size:1rem;margin:0}
 dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0}
 dl.meta dt{color:var(--muted)}
 dl.meta dd{margin:0;overflow-wrap:anywhere}
-@media (max-width:520px){dl.meta{grid-template-columns:1fr}dl.meta dt{margin-top:8px}}
+@media (max-width:520px){dl.meta{grid-template-columns:1fr}dl.meta dt{margin-top:8px}.titlerow{flex-wrap:wrap}}
 details{margin:10px 0 0}
-summary{cursor:pointer;color:var(--accent)}
+summary{cursor:pointer;color:var(--accent);padding:10px 0}
 pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px;overflow:auto;max-height:320px;font:var(--fs-xs)/1.4 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:80px;flex:1}
 .bar>span{display:block;height:100%;background:var(--accent)}
@@ -81,13 +93,23 @@ ul.reasons.rej{color:var(--bad)}
 .seg button+button{border-left:1px solid var(--line-strong)}
 .seg button[aria-checked=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .seg button:disabled{cursor:not-allowed;opacity:.55}
+/* .seg clips its corners (overflow:hidden), so the focus ring is drawn inside the button; on the filled option it flips to the ink colour so it is not blue-on-blue */
+.seg button:focus-visible{outline:3px solid var(--accent);outline-offset:-5px}
+.seg button[aria-checked=true]:focus-visible{outline-color:var(--accent-ink)}
+.seg button[aria-checked=true]::before{content:"\2713\00a0"}
+.seg button[aria-checked=true]::before{content:"\2713\00a0" / ""}              /* a tick as well as the colour (WCAG 1.4.1); the screen reader already has aria-checked */
+.undecided{margin:6px 0 0;color:var(--warn);font-size:var(--fs-sm)}
+.card[data-open="1"]{border-color:var(--warn)}
 .locked{margin-top:10px;color:var(--muted);font-size:var(--fs-md)}
 .actionbar{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:16px 0 0}
 .actionbar .inner{display:grid;gap:10px}
+/* Wide screens: one fixed row (name | note | buttons) with the one-line "why" under it, so the bar stays about 100px and never hides the first card. */
 @media (min-width:900px){
-  main{padding-bottom:190px}
-  .actionbar{position:fixed;left:0;right:0;bottom:0;border-radius:0;border-width:1px 0 0;margin:0;padding:10px 16px;z-index:5}
-  .actionbar .inner{max-width:920px;margin:0 auto;gap:var(--s2)}
+  main{padding-bottom:140px}
+  .actionbar{position:fixed;left:0;right:0;bottom:0;border-radius:0;border-width:1px 0 0;margin:0;padding:8px 16px;z-index:5}
+  .actionbar .inner{max-width:920px;margin:0 auto;gap:4px var(--s3);grid-template-columns:1fr auto;align-items:end}
+  .actionbar .inner>.btns{flex-wrap:nowrap}
+  .actionbar .inner>.msgs{grid-column:1 / -1}
   .actionbar textarea{min-height:40px;height:40px}
 }
 .fields{display:grid;grid-template-columns:minmax(120px,220px) 1fr;gap:var(--s2)}
@@ -101,6 +123,8 @@ button.secondary{background:transparent;color:var(--text);border:1px solid var(-
 button.danger{color:var(--bad);border-color:var(--bad)}
 button:disabled{opacity:.5;cursor:not-allowed}
 .why{color:var(--muted);font-size:var(--fs-sm);flex:1;min-width:180px}
+.msgs{display:grid;gap:2px}
+.msgs .why{min-width:0}
 .err{color:var(--bad);font-size:var(--fs-md)}
 .cmd{font:var(--fs-sm)/1.4 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 10px;overflow-wrap:anywhere;white-space:pre-wrap}
 .empty{text-align:center;padding:36px 12px;color:var(--muted)}
@@ -115,10 +139,21 @@ button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
 /* The reviewer's live to-do count stays on screen while scrolling; on phones the action bar is at the end of the page, so it also carries a jump. */
 .statusline{position:sticky;top:0;z-index:4;display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;justify-content:space-between;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 0;margin:0 0 12px}
 .statusline p{margin:0;font-weight:600;flex:1;min-width:200px}
+.statusline label{display:flex;gap:6px;align-items:center;font-size:var(--fs-sm);min-height:var(--tap-sm)}
+.statusline input{width:auto}
 .jump{display:none}
 @media (max-width:899px){.jump{display:inline-block}}
-html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus must not end up under the sticky strip or the action bar */
+html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus must not end up under the sticky strip or the action bar */
 .statusline+.card{margin-top:0}
+.metaline{margin:0 0 8px}
+/* Short screens (a phone on its side, 400% zoom): a sticky strip would eat half the view, so it scrolls away instead. */
+@media (max-height:520px){.statusline{position:static}html{scroll-padding-top:0}}
+/* Forced-colours (Windows High Contrast): keep control edges and show the chosen option by shape, not only by colour. */
+@media (forced-colors:active){
+  button.primary,.seg button,.card{border:1px solid ButtonText}
+  .seg button[aria-checked=true]{background:Highlight;color:HighlightText;forced-color-adjust:none;border-bottom:4px solid HighlightText;font-weight:700}
+  .seg button:focus-visible{outline-color:CanvasText}
+}
 </style>
 </head>
 <body>
@@ -173,6 +208,14 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
     }
     return false;
   }
+  // same normalisation as the server's four-eyes check (case, spacing, invisible characters); the server decides, this only warns early
+  function person(n) { return String(n || '').normalize('NFKC').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+  // Names come from files we do not control. Invisible and direction-changing characters (e.g. U+202E, which makes "pa<U+202E>di" read as "paid")
+  // are shown as a visible [U+XXXX] marker instead of silently changing what the reviewer reads.
+  var HIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+  function show(s) {
+    return String(s === null || s === undefined ? '' : s).replace(HIDDEN, function (c) { return '[U+' + ('0000' + c.charCodeAt(0).toString(16).toUpperCase()).slice(-4) + ']'; });
+  }
   function pct(x) { return (x === null || x === undefined) ? 'n/a' : Math.round(x * 100) + '%'; }
   function when(iso) { var d = new Date(iso); return isNaN(d) ? String(iso || '') : d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; }
 
@@ -182,12 +225,24 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
     if (o.body !== undefined) { headers['Content-Type'] = 'application/json'; headers['X-DataPipe-CSRF'] = csrf; }
     return fetch(path, { method: o.method || 'GET', credentials: 'same-origin', headers: headers,
                          body: o.body === undefined ? undefined : JSON.stringify(o.body) })
+      .catch(function () {
+        throw new Error('Cannot reach the review server. Check that “datapipe review” is still running in your terminal, then try again. Nothing you entered on this page has been lost.');
+      })
       .then(function (r) {
         return r.json().catch(function () { return null; }).then(function (body) {
-          if (!r.ok) throw new Error((body && body.error) || ('Request failed (' + r.status + ')'));
+          if (!r.ok) throw new Error(friendly(r.status, body && body.error));
           return body;
         });
       });
+  }
+  // Server messages that are already written for people pass through; the bare ones get a next step.
+  function friendly(status, msg) {
+    if (status === 401) return 'This page is no longer signed in (the review server was restarted, or the link was opened in another browser). Open the link printed by “datapipe review” again.';
+    if (status === 403) return 'The server refused this request because the page is out of date (the review server was restarted). Reload the page, then repeat your last step.';
+    if (status === 421) return 'Open this page with the address printed by “datapipe review” (127.0.0.1), not through another host name.';
+    if (status === 500) return 'The review server hit an internal error. Look at the terminal where “datapipe review” runs; nothing was saved.';
+    if (status === 413) return 'The note or selection is too large to send. Shorten the note and try again.';
+    return msg || ('The server answered with an error (' + status + '). Reload the page and try again.');
   }
 
   var STATE_BADGE = { pending: ['b-warn', 'Pending review'], approved: ['b-ok', 'Approved'], rejected: ['b-bad', 'Rejected'] };
@@ -202,10 +257,14 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
   function badge(map, key) { var b = map[key] || ['b-neutral', String(key)]; return h('span', { class: 'badge ' + b[0], text: b[1] }); }
 
   // ------------------------------------------------------------------ list view
+  // Every navigation gets a number; an answer that arrives for an older navigation is dropped, so a slow list can never paint over the proposal the reviewer just opened.
+  var navSeq = 0;
   function showList() {
+    var seq = ++navSeq;
     clear(app);
     app.appendChild(h('p', { class: 'muted', text: 'Loading proposals…' }));
     api('/api/proposals').then(function (data) {
+      if (seq !== navSeq) return;
       clear(app);
       if (data.reviewer_fixed) document.getElementById('whoami').textContent = 'reviewing as ' + data.reviewer_fixed;
       var listHeading = h('h2', { text: 'Mapping proposals' });
@@ -238,21 +297,25 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
         app.appendChild(h('details', null, h('summary', { text: data.skipped.length + ' file(s) skipped' }),
           h('ul', null, data.skipped.map(function (x) { return h('li', { class: 'small', text: x.file + ': ' + x.error }); }))));
       }
-    }).catch(showError);
+    }).catch(function (e) { if (seq === navSeq) showError(e); });
   }
 
   function showError(e) {
     clear(app);
     app.appendChild(h('div', { class: 'banner bad', role: 'alert', text: e.message || String(e) }));
-    app.appendChild(h('button', { type: 'button', class: 'back', onclick: function () { location.hash = '#/'; route(); }, text: '← Back to proposals' }));
+    app.appendChild(h('div', { class: 'btns' },
+      h('button', { type: 'button', class: 'secondary', onclick: function () { route(); }, text: 'Try again' }),
+      h('button', { type: 'button', class: 'back', onclick: function () { if (location.hash === '#/' || !location.hash) route(); else location.hash = '#/'; }, text: '← Back to proposals' })));
     arrived('Error', null, 'Error: ' + (e.message || String(e)));
   }
 
   // ------------------------------------------------------------------ detail view
   function showDetail(id) {
+    var seq = ++navSeq;
     clear(app);
     app.appendChild(h('p', { class: 'muted', text: 'Loading…' }));
-    api('/api/proposals/' + id).then(function (data) { buildDetail(id, data); }).catch(showError);
+    api('/api/proposals/' + id).then(function (data) { if (seq === navSeq) buildDetail(id, data); })
+      .catch(function (e) { if (seq === navSeq) showError(e); });
   }
 
   function buildDetail(id, data) {
@@ -260,7 +323,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
     var decided = data.state.state !== 'pending';
     var remap = data.manual_remap || { available: false, reason: '', columns: [] };
     var cols = (remap.columns && remap.columns.length) ? remap.columns : (p.source.columns || []);
-    var st = { decisions: {}, manual: {}, remapErr: {}, checking: {}, result: null, busy: false, error: '', refocus: null };
+    var st = { decisions: {}, manual: {}, remapErr: {}, checking: {}, result: null, busy: false, error: '', refocus: null, want: null, onlyOpen: false };
     // One card per schema column. The order is fixed from the server's verdicts (not from the reviewer's clicks), so cards never
     // jump while you work: needs a decision / required but unmapped, then refused, then optional unmapped, then verified.
     var itemFor = {};
@@ -288,6 +351,17 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
                                 onclick: function () { bar.scrollIntoView({ block: 'end' }); (decided || st.result ? bar : reviewer).focus(); } });
     var remapBox = h('div', { id: 'remap' });
     var bar = h('div', { class: 'actionbar' });
+    // Wide schemas (dozens of columns): jump to the next column that still needs a decision, or hide the ones the checks already settled.
+    var nextBtn = h('button', { type: 'button', class: 'secondary small', id: 'next-open', text: 'Next to decide', onclick: function () {
+      var c = itemsBox.querySelector('[data-open="1"]');
+      if (!c) return;
+      c.scrollIntoView({ block: 'center' });
+      var f = c.querySelector('button[tabindex="0"], select');
+      if (f) f.focus({ preventScroll: true });
+    } });
+    var filterCount = h('span');
+    var onlyBox = h('input', { type: 'checkbox', id: 'only-open', onchange: function () { st.onlyOpen = onlyBox.checked; drawItems(); } });
+    var filterLabel = h('label', { for: 'only-open' }, onlyBox, h('span', { text: 'Only columns that need me' }), filterCount);
 
     function included(item) {
       if (st.manual[item.target]) return false;              // superseded by the reviewer's own mapping
@@ -333,31 +407,34 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
       var pr = problems();
       approveBtn.disabled = st.busy || pr.length > 0;
       rejectBtn.disabled = st.busy || !reviewer.value.trim() || !note.value.trim() || !data.integrity_ok;
-      var same = reviewer.value.trim() && reviewer.value.trim() === p.actor;
+      var same = reviewer.value.trim() && person(reviewer.value) === person(p.actor);
       var msg = pr.length ? 'To approve: ' + pr.join('; ') + '.' : 'Ready to approve.';
       var rej = [];
       if (!reviewer.value.trim()) rej.push('your name');
       if (!note.value.trim()) rej.push('a note');
-      if (rej.length) msg += ' To reject, add ' + rej.join(' and ') + '.';
+      if (!data.integrity_ok) msg = 'This proposal was changed after it was created, so it can be neither approved nor rejected here. Create a fresh one with “datapipe map”.';
+      else if (rej.length) msg += ' To reject, add ' + rej.join(' and ') + '.';
       if (same) msg += ' Note: the reviewer must be a different person than the proposer (' + p.actor + ').';
       why.textContent = msg;
       errBox.textContent = st.error;
     }
 
-    // Two-option radio group: one tab stop (the checked option), arrow keys switch and move focus.
-    function segGroup(target, included, locked, setTo) {
+    // Two-option radio group: one tab stop (the checked option, or the first while nothing is chosen), arrow keys switch and move focus.
+    // `chosen` is true / false, or undefined while the reviewer has not decided yet (then neither option looks selected).
+    function segGroup(target, chosen, locked, setTo) {
       function opt(label, value) {
-        var on = included === value;
-        return h('button', { type: 'button', role: 'radio', 'aria-checked': on ? 'true' : 'false', tabindex: on ? '0' : '-1',
+        var on = chosen === value;
+        var stop = chosen === undefined ? value === true : on;
+        return h('button', { type: 'button', role: 'radio', 'aria-checked': on ? 'true' : 'false', tabindex: stop ? '0' : '-1',
                              'data-fid': 'seg:' + target + ':' + label, disabled: locked, onclick: setTo(value),
                              onkeydown: function (ev) {
                                if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].indexOf(ev.key) < 0) return;
                                ev.preventDefault();
-                               st.refocus = 'seg:' + target + ':' + (value ? 'Exclude' : 'Include');
+                               st.want = 'seg:' + target + ':' + (value ? 'Exclude' : 'Include');     // the redraw would otherwise hand focus back to the option just left
                                setTo(!value)();
                              }, text: label });
       }
-      return h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Decision for ' + target }, opt('Include', true), opt('Exclude', false));
+      return h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Decision for ' + show(target) }, opt('Include', true), opt('Exclude', false));
     }
 
     function evidenceChips(e, withAlternatives) {
@@ -368,35 +445,45 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
       if (withAlternatives && e.alternatives && e.alternatives.length) chips.appendChild(h('span', { class: 'chip', text: 'Other columns that also fit: ' + e.alternatives.join(', ') }));
       return chips;
     }
-    function nameRow(source, target, required, rightBadge) {
+    // The target column name is the card's heading (so a screen reader can list and jump between the columns).
+    function nameRow(source, target, required, rightBadge, hid) {
       return h('div', { class: 'row spread' },
         h('div', { class: 'row' },
-          source === null ? null : h('span', { class: 'name', 'data-role': 'source', text: source }),
-          source === null ? null : h('span', { class: 'arrow', 'aria-label': 'maps to', text: '→' }),
-          h('span', { class: 'name', 'data-role': 'target', text: target }),
+          source === null ? null : h('span', { class: 'name', 'data-role': 'source', text: show(source) }),
+          source === null ? null : h('span', { class: 'arrow' }, h('span', { 'aria-hidden': 'true', text: '→' }), h('span', { class: 'sr-only', text: ' maps to ' })),
+          h('h3', { id: hid }, h('span', { class: 'name', 'data-role': 'target', text: show(target) })),
           required ? h('span', { class: 'badge b-neutral', text: 'required' }) : null),
         rightBadge);
     }
 
+    // "Open" = still needs the reviewer: a proposal with no decision yet, or a required column with no source.
+    function isOpen(c) {
+      if (decided || st.manual[c.name]) return false;
+      var it = itemFor[c.name];
+      if (it) return it.status === 'needs_review' && st.decisions[it.target] === undefined;
+      return !!c.required;
+    }
     // One card per schema column: the proposal and its evidence, the reviewer's decision, and the way to choose another source.
     function targetCard(c, n) {
       var item = itemFor[c.name], man = st.manual[c.name];
       var status = man ? 'manual' : (item ? item.status : 'unmapped');
-      var card = h('div', { class: 'card', 'data-target': c.name, 'data-status': status });
+      var hid = 'col-' + n;
+      var card = h('section', { class: 'card', 'data-target': c.name, 'data-status': status, 'aria-labelledby': hid });
+      if (isOpen(c)) card.setAttribute('data-open', '1');
       if (man) {
-        card.appendChild(nameRow(man.source, c.name, c.required, h('span', { class: 'badge b-manual', text: 'Manual (by you)' })));
+        card.appendChild(nameRow(man.source, c.name, c.required, h('span', { class: 'badge b-manual', text: 'Manual (by you)' }), hid));
         card.appendChild(evidenceChips(man.evidence, false));
         if (man.evidence.warnings && man.evidence.warnings.length) {
           card.appendChild(h('ul', { class: 'reasons' }, man.evidence.warnings.map(function (w) { return h('li', { text: w }); })));
         }
         card.appendChild(h('div', { class: 'quote', text: 'Chosen by you and checked against the source file just now. A note is required when you approve.' }));
-        if (item) card.appendChild(h('div', { class: 'superseded', 'data-role': 'superseded', text: 'This replaces the proposed mapping from ' + item.source + '.' }));
+        if (item) card.appendChild(h('div', { class: 'superseded', 'data-role': 'superseded', text: 'This replaces the proposed mapping from ' + show(item.source) + '.' }));
         if (!decided) card.appendChild(h('button', { type: 'button', class: 'secondary small', text: 'Remove manual mapping', 'data-fid': 'rm:' + c.name,
-          onclick: function () { delete st.manual[c.name]; st.refocus = 'sel:' + c.name; draw(); } }));
+          onclick: function () { delete st.manual[c.name]; st.want = 'sel:' + c.name; draw(); } }));
       } else if (item) {
         var locked = decided || item.status === 'rejected';
         var e = item.evidence || {};
-        card.appendChild(nameRow(item.source, c.name, c.required, badge(STATUS_BADGE, item.status)));
+        card.appendChild(nameRow(item.source, c.name, c.required, badge(STATUS_BADGE, item.status), hid));
         var conf = h('div', { class: 'row' });
         var bar_ = h('div', { class: 'bar', role: 'img', 'aria-label': 'confidence ' + pct(item.confidence) }, h('span'));
         bar_.firstChild.style.width = Math.max(0, Math.min(100, Math.round(item.confidence * 100))) + '%';
@@ -416,11 +503,14 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
           card.appendChild(h('div', { class: 'locked', text: 'Rejected by the deterministic checks. It cannot be included.' }));
         } else {
           var setTo = function (v) { return function () { if (locked) return; st.decisions[item.target] = v; draw(); }; };
-          card.appendChild(segGroup(item.target, included(item), locked, setTo));
+          // A verified item starts as Include. An item that needs review starts with NOTHING chosen (it is left out unless you include it).
+          var chosen = item.status === 'accepted' ? included(item) : st.decisions[item.target];
+          card.appendChild(segGroup(item.target, chosen, locked, setTo));
+          if (chosen === undefined && !locked) card.appendChild(h('div', { class: 'undecided', 'data-role': 'undecided', text: 'Not decided yet. If you leave it, this column is left out.' }));
         }
       } else {
         card.appendChild(nameRow(null, c.name, c.required,
-          h('span', { class: 'badge ' + (c.required ? 'b-bad' : 'b-neutral'), text: c.required ? 'Required, not mapped' : 'Not mapped' })));
+          h('span', { class: 'badge ' + (c.required ? 'b-bad' : 'b-neutral'), text: c.required ? 'Required, not mapped' : 'Not mapped' }), hid));
         card.appendChild(h('div', { class: 'locked', text: c.required ? 'The provider found no source for this required column. Approval is blocked until you choose one.' : 'No source column chosen.' }));
       }
       if (!decided && remap.available) card.appendChild(changeSource(c, n));
@@ -428,16 +518,16 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
     }
 
     function currentText(c) {
-      if (st.manual[c.name]) return 'Manual: ← ' + st.manual[c.name].source;
+      if (st.manual[c.name]) return 'Manual: ← ' + show(st.manual[c.name].source);
       var it = itemFor[c.name];
       if (it && it.status !== 'rejected') {
-        if (included(it)) return 'Proposed: ← ' + it.source + (it.status === 'accepted' ? ' (verified)' : ' (reviewed by you)');
-        return 'Proposed: ← ' + it.source + ' (currently excluded)';
+        if (included(it)) return 'Proposed: ← ' + show(it.source) + (it.status === 'accepted' ? ' (verified)' : ' (reviewed by you)');
+        return 'Proposed: ← ' + show(it.source) + (st.decisions[it.target] === undefined ? ' (not decided yet, left out for now)' : ' (currently excluded)');
       }
       return 'Not mapped';
     }
     function checkManual(t, idx) {
-      st.remapErr[t] = ''; st.checking[t] = true; st.refocus = 'sel:' + t; draw();
+      st.remapErr[t] = ''; st.checking[t] = true; st.want = 'sel:' + t; draw();
       api('/api/proposals/' + id + '/check', { method: 'POST', body: { target: t, source: cols[idx] } })
         .then(function (res) { st.checking[t] = false; st.manual[t] = { source: cols[idx], evidence: res.evidence }; draw(); })
         .catch(function (e) { st.checking[t] = false; delete st.manual[t]; st.remapErr[t] = e.message; draw(); });
@@ -450,7 +540,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
                                                      : (hasProposal ? 'Keep the proposed mapping (or choose another)…' : 'Choose a file column…') }));
       cols.forEach(function (name, idx) {
         var owner = usedBy(name, c.name);
-        sel.appendChild(h('option', { value: String(idx), text: name + (owner ? '   (used for ' + owner + ')' : ''), disabled: !!owner }));
+        sel.appendChild(h('option', { value: String(idx), text: show(name) + (owner ? '   (used for ' + show(owner) + ')' : ''), disabled: !!owner }));
       });
       if (st.manual[c.name]) sel.value = String(cols.indexOf(st.manual[c.name].source));
       sel.addEventListener('change', function () {
@@ -471,10 +561,17 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
       var nOpen = uncovered().length, nManual = Object.keys(st.manual).length;
       var nVerified = p.items.filter(function (i) { return i.status === 'accepted'; }).length;
       var nRefused = p.items.filter(function (i) { return i.status === 'rejected'; }).length;
-      summaryBox.textContent = nDecide + ' need your decision' + (nOpen ? ' · ' + nOpen + ' required column(s) unmapped' : '') + ' · ' + nVerified +
-        ' verified · ' + nRefused + ' refused by the checks' + (nManual ? ' · ' + nManual + ' mapped by you' : '');
-      order.forEach(function (x) { itemsBox.appendChild(targetCard(x.c, x.n)); });
+      summaryBox.textContent = data.integrity_ok
+        ? nDecide + ' need your decision' + (nOpen ? ' · ' + nOpen + ' required column(s) unmapped' : '') + ' · ' + nVerified +
+          ' verified · ' + nRefused + ' refused by the checks' + (nManual ? ' · ' + nManual + ' mapped by you' : '')
+        : 'Integrity check failed: the verdicts below cannot be trusted, so this proposal cannot be approved.';
+      // "Only the columns that need me" is decided from the server's verdicts (rank 0), not from clicks, so a card never vanishes under the reviewer's hands.
+      var shown = order.filter(function (x) { return !st.onlyOpen || x.rank === 0; });
+      shown.forEach(function (x) { itemsBox.appendChild(targetCard(x.c, x.n)); });
       if (!order.length) itemsBox.appendChild(h('div', { class: 'card empty', text: 'The schema has no columns.' }));
+      else if (!shown.length) itemsBox.appendChild(h('div', { class: 'card empty', text: 'Every column is verified or refused by the checks; nothing needs your decision.' }));
+      nextBtn.disabled = itemsBox.querySelector('[data-open="1"]') === null;
+      filterCount.textContent = ' (' + order.filter(function (x) { return x.rank === 0; }).length + ' of ' + order.length + ')';
     }
     function drawRemap() {
       clear(remapBox);
@@ -501,14 +598,18 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
       }
       if (st.result) {
         var r = st.result;
-        var cmd = 'python -m datapipe run <your-file> --schema ' + r.schema_file + ' --policy ' + p.policy + ' --analysis <analysis.json>';
+        // Absolute paths, so the command works from any folder (the schema lives in the review's work folder, not the current one).
+        function q(s) { return /^[A-Za-z0-9_@%+=:,.\/\\-]+$/.test(s) ? s : '"' + s.replace(/"/g, '\\"') + '"'; }
+        var cmd = 'python -m datapipe --workdir ' + q(r.workdir || 'work') + ' run <your-file> --schema ' + q(r.schema_path || r.schema_file) +
+                  ' --policy ' + p.policy + ' --analysis <analysis.json>';
         var dl = h('button', { class: 'secondary', type: 'button', id: 'download', text: 'Download schema JSON', onclick: function () {
           var blob = new Blob([JSON.stringify(r.schema, null, 2) + '\n'], { type: 'application/json' });
           var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = r.schema_file.split('/').pop();
           document.body.appendChild(a); a.click(); a.remove();
         } });
-        bar.appendChild(h('div', { class: 'inner', id: 'result' },
+        bar.appendChild(h('div', { class: 'inner', id: 'result', tabindex: '-1' },
           h('div', { class: 'banner ok', role: 'status', text: 'Approved. Schema created: ' + r.schema_file + ' (fingerprint ' + r.fingerprint.slice(0, 12) + ')' }),
+          h('div', { class: 'small muted', text: 'Next, run your data file with this schema. Replace <your-file> and <analysis.json> with your own files:' }),
           h('div', { class: 'cmd', text: cmd }), h('div', { class: 'btns' }, dl,
             h('button', { class: 'secondary', type: 'button', text: 'Back to proposals', onclick: function () { location.hash = '#/'; route(); } }))));
         return;
@@ -517,7 +618,8 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
         h('div', { class: 'fields' },
           h('div', null, h('label', { class: 'f', for: 'reviewer', text: 'Reviewer' }), reviewer),
           h('div', null, h('label', { class: 'f', for: 'note', text: 'Note' }), note)),
-        h('div', { class: 'btns' }, approveBtn, rejectBtn, why), errBox));
+        h('div', { class: 'btns' }, approveBtn, rejectBtn),
+        h('div', { class: 'msgs' }, why, errBox)));
       updateBar();
     }
 
@@ -530,7 +632,9 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
     }
     function draw() {
       var active = document.activeElement, fid = focusId();
-      if (fid) st.refocus = fid;
+      var want = st.want; st.want = null;                                  // an action that knows where focus should go (arrow keys, removing a mapping) wins over "stay put"
+      if (want) st.refocus = want;
+      else if (fid) st.refocus = fid;
       else if (active && active !== document.body) st.refocus = null;       // the reviewer is typing elsewhere: never take focus from them
       drawItems(); drawRemap(); drawBanner(); drawBar();
       if (st.refocus && refocus(st.refocus)) st.refocus = null;      // a disabled control (mid-check) keeps the request pending
@@ -545,7 +649,11 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
     }
     approveBtn.addEventListener('click', function () {
       var o = overrides();
-      submit('approve', body({ include: o.include, exclude: o.exclude, manual: manualList() }), function (res) { st.result = res; draw(); });
+      submit('approve', body({ include: o.include, exclude: o.exclude, manual: manualList() }), function (res) {
+        st.result = res; draw();
+        var done = document.getElementById('result');                       // the Approve button is gone: put focus on the outcome instead of dropping it to the page
+        if (done) done.focus();
+      });
     });
     rejectBtn.addEventListener('click', function () {
       submit('reject', body(), function () { showDetail(id); });
@@ -558,39 +666,44 @@ html{scroll-padding-top:72px;scroll-padding-bottom:200px}              /* focus 
 
     // ---- static parts
     clear(app);
-    app.appendChild(h('button', { type: 'button', class: 'back', onclick: function () { location.hash = '#/'; }, text: '← All proposals' }));
     var detailHeading = h('h2', { text: p.source.name || '(unnamed file)' });
-    app.appendChild(h('div', { class: 'row spread' }, detailHeading, badge(STATE_BADGE, data.state.state)));
+    app.appendChild(h('div', { class: 'row spread titlerow' },
+      h('div', { class: 'row' }, h('button', { type: 'button', class: 'back', onclick: function () { location.hash = '#/'; }, text: '← All proposals' }), detailHeading),
+      badge(STATE_BADGE, data.state.state)));
     arrived(p.source.name || 'Proposal', detailHeading, 'Proposal ' + (p.source.name || '') + ', ' + data.state.state);
     if (!data.integrity_ok) app.appendChild(h('div', { class: 'banner bad', role: 'alert', text: 'INTEGRITY CHECK FAILED: this proposal was modified after it was created. Do not approve it.' }));
     reqBanner = h('div', { class: 'banner warn', id: 'req-banner' });
     app.appendChild(reqBanner);
 
     // What the reviewer's decision depends on stays in view (who proposed, which tier, what left the machine); the rest is one click away.
-    app.appendChild(h('div', { class: 'statusline' }, summaryBox, jumpBtn));
-    app.appendChild(h('div', { class: 'card' }, h('dl', { class: 'meta' },
-      h('dt', { text: 'Proposed by' }), h('dd', { text: p.actor + ' on ' + when(p.created) }),
-      h('dt', { text: 'Policy' }), h('dd', { text: p.policy }),
-      h('dt', { text: 'Data sent out' }), h('dd', { text: egressText((p.egress || {}).mode) })),
+    var wide = order.length > 8;
+    app.appendChild(h('div', { class: 'statusline' }, summaryBox, wide ? filterLabel : null, wide ? nextBtn : null, jumpBtn));
+    // The three facts a reviewer needs before deciding stay visible but take two lines; everything else is one click away.
+    app.appendChild(h('p', { class: 'small metaline' },
+      h('span', { class: 'muted', text: 'Proposed by ' }), h('span', { text: p.actor + ' on ' + when(p.created) + ' · policy ' + p.policy }),
+      h('br'), h('span', { class: 'muted', text: 'Data sent out: ' }), h('span', { text: egressText((p.egress || {}).mode) })));
+    app.appendChild(h('div', { class: 'folds' },
       h('details', { id: 'more' }, h('summary', { text: 'More about this proposal' }), h('dl', { class: 'meta' },
-        h('dt', { text: 'Source file' }), h('dd', { text: (p.source.name || '') + ' · ' + (p.source.format || '?') + ' · sha256 ' + String(p.source.sha256 || '').slice(0, 12) }),
+        h('dt', { text: 'Source file' }), h('dd', { text: show(p.source.name || '') + ' · ' + (p.source.format || '?') + ' · sha256 ' + String(p.source.sha256 || '').slice(0, 12) }),
         h('dt', { text: 'Provider' }), h('dd', { text: (p.provider.name || '?') + (p.provider.model ? ' (' + p.provider.model + ')' : '') + ' · ' + (p.provider.locality || '') }),
         h('dt', { text: 'Thresholds' }), h('dd', { text: 'confidence ≥ ' + (p.thresholds || {}).min_confidence + ', value fit ≥ ' + pct((p.thresholds || {}).min_parse_rate) }))),
-      (p.egress && p.egress.payload) ? h('details', null, h('summary', { text: 'Exactly what was sent' }), h('pre', { id: 'payload', text: JSON.stringify(p.egress.payload, null, 2) })) : null));
+      (p.egress && p.egress.payload) ? h('details', null, h('summary', { text: 'Exactly what was sent' }), h('pre', { id: 'payload', text: JSON.stringify(p.egress.payload, null, 2) })) : null,
+      // One folded explainer instead of a paragraph above the first card: the reviewer's first decision should be on the first screen.
+      h('details', { id: 'legend' }, h('summary', { text: 'How to read this page' }),
+        h('p', { class: 'small muted', text: 'One card per schema column; the ones that need you come first. Verified items are included by default, items that need review are left out until you include them, and refused items cannot be included. To use a different file column, choose it on the card: it is checked against the real values in the source file, and a note is required.' }),
+        h('ul', { class: 'small' },
+          h('li', { text: 'Values fit target type: how many of the non-empty values in the file column parse as the target type. This is the hard check; below the threshold the mapping is refused.' }),
+          h('li', { text: 'Distinct values: share of values that are different from each other. Expect ~100% for an ID column and a low figure for a flag or category; it only matters when the target must be unique.' }),
+          h('li', { text: 'Name similarity: how alike the file column name and the schema column name are. It is a hint, not proof.' }),
+          h('li', { text: 'Other columns that also fit: more than one column would pass the type check, so the name and the data alone cannot decide; you must.' })))));
 
-    app.appendChild(h('h2', { text: 'Mappings' }));
-    app.appendChild(h('p', { class: 'small muted', text: 'One card per schema column; the ones that need you come first. Verified items are included by default, items that need review are excluded until you include them, and refused items cannot be included. To use a different file column, choose it on the card: it is checked against the real values in the source file, and a note is required.' }));
-    app.appendChild(h('details', { id: 'legend' }, h('summary', { text: 'How to read the evidence' }), h('ul', { class: 'small' },
-      h('li', { text: 'Values fit target type: how many of the non-empty values in the file column parse as the target type. This is the hard check; below the threshold the mapping is refused.' }),
-      h('li', { text: 'Distinct values: share of values that are different from each other. Expect ~100% for an ID column and a low figure for a flag or category; it only matters when the target must be unique.' }),
-      h('li', { text: 'Name similarity: how alike the file column name and the schema column name are. It is a hint, not proof.' }),
-      h('li', { text: 'Other columns that also fit: more than one column would pass the type check, so the name and the data alone cannot decide; you must.' }))));
+    app.appendChild(h('h2', { class: 'sr-only', text: 'Mappings' }));
     app.appendChild(remapBox);
     app.appendChild(itemsBox);
 
     var others = h('div', { class: 'card' });
     others.appendChild(h('h3', { text: 'File columns not used' }));
-    others.appendChild(h('p', { class: 'small', text: (p.unmapped_sources || []).length ? p.unmapped_sources.join(', ') : 'none' }));
+    others.appendChild(h('p', { class: 'small', text: (p.unmapped_sources || []).length ? p.unmapped_sources.map(show).join(', ') : 'none' }));
     if ((p.unmapped_sources || []).length) others.appendChild(h('p', { class: 'small muted', text: 'Under a strict policy, unused file columns count as schema drift and block runs.' }));
     app.appendChild(others);    (p.warnings || []).forEach(function (w) { app.appendChild(h('div', { class: 'banner warn', text: w })); });
     app.appendChild(bar);

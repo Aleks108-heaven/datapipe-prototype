@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -163,10 +164,12 @@ def schema_from_dict(doc) -> Schema:
             raise SchemaError(f"unknown column keys {sorted(unknown)} in column {raw.get('name')!r}")
         name = raw.get("name")
         if not isinstance(name, str) or not NAME_RE.match(name):
-            raise SchemaError(f"invalid column name {name!r} (letters, digits, underscore; not starting with a digit)")
+            raise SchemaError(f"invalid column name {name!r} (letters, digits, underscore; not starting with a digit; "
+                              "ASCII only - for a file column with another spelling use the 'source' key)")
         if name in seen:
             raise SchemaError(f"duplicate column name {name!r}")
         seen.add(name)
+        _check_column_types(name, raw)
         col = Column(**raw)
         if col.type not in TYPES:
             raise SchemaError(f"column {name!r}: unknown type {col.type!r}; choose from {TYPES}")
@@ -185,7 +188,7 @@ def schema_from_dict(doc) -> Schema:
                     setattr(col, key, col.parse(v))
             if col.allowed is not None:
                 col.allowed = [col.parse(v) for v in col.allowed]
-        except ValueError as exc:
+        except (ValueError, TypeError, ArithmeticError) as exc:
             raise SchemaError(f"column {name!r}: bad constraint value ({exc})")
         if col.pattern is not None:
             try:
@@ -199,18 +202,45 @@ def schema_from_dict(doc) -> Schema:
     prov = doc.get("provenance")
     if prov is not None and not isinstance(prov, dict):
         raise SchemaError("provenance must be an object")
-    return Schema(
-        name=str(doc.get("name", "unnamed")),
-        version=int(doc.get("version", 1)),
-        columns=cols,
-        null_tokens=tuple(doc.get("null_tokens", [""])),
-        provenance=prov,
-    )
+    schema_name = doc.get("name", "unnamed")
+    if not isinstance(schema_name, str) or not schema_name.strip():
+        raise SchemaError("schema 'name' must be non-empty text")
+    version = doc.get("version", 1)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+        raise SchemaError("schema 'version' must be a whole number (0 or more)")
+    tokens = doc.get("null_tokens", [""])
+    if not isinstance(tokens, list) or not all(isinstance(t, str) for t in tokens):
+        raise SchemaError("'null_tokens' must be a list of text values, e.g. [\"\", \"NA\"]")
+    return Schema(name=schema_name, version=version, columns=cols, null_tokens=tuple(tokens), provenance=prov)
+
+
+_BOOL_KEYS = ("required", "unique", "pii")
+_TEXT_KEYS = ("source", "format", "pattern", "description")
+
+
+def _check_column_types(name, raw):
+    """A value of the wrong JSON type must be an error, never a silent change of meaning
+    (e.g. "required": "false" is a non-empty string, which Python treats as true)."""
+    for key in _BOOL_KEYS:
+        if key in raw and not isinstance(raw[key], bool):
+            raise SchemaError(f"column {name!r}: '{key}' must be true or false (without quotes)")
+    for key in _TEXT_KEYS:
+        if key in raw and (not isinstance(raw[key], str) or (key != "description" and not raw[key])):
+            raise SchemaError(f"column {name!r}: '{key}' must be text")
+    if "max_length" in raw and (isinstance(raw["max_length"], bool) or not isinstance(raw["max_length"], int)
+                                or raw["max_length"] < 1):
+        raise SchemaError(f"column {name!r}: 'max_length' must be a whole number of 1 or more")
+    if "scale" in raw and isinstance(raw["scale"], bool):
+        raise SchemaError(f"column {name!r}: scale must be an integer 0..18")
+    if "allowed" in raw and (not isinstance(raw["allowed"], list) or not raw["allowed"]):
+        raise SchemaError(f"column {name!r}: 'allowed' must be a non-empty list")
 
 
 # ------------------------------------------------------------------ inference
 def _sanitize(name, taken):
-    base = re.sub(r"\W+", "_", name).strip("_").lower() or "col"
+    # ASCII only, because the schema loader requires it; the real header is kept in the column's 'source' key
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    base = re.sub(r"[^0-9A-Za-z]+", "_", plain).strip("_").lower() or "col"
     if base[0].isdigit():
         base = "_" + base
     candidate, i = base, 2

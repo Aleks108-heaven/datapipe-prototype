@@ -31,6 +31,10 @@ def build_parser():
     r.add_argument("--accept-inferred", action="store_true")
     r.add_argument("--actor")
     r.add_argument("--json", action="store_true", help="print the full result document")
+    r.add_argument("--max-file-mb", type=float, help="override the policy's file-size limit for this run (recorded in the result)")
+    r.add_argument("--max-memory-gb", type=float,
+                   help="override the policy's memory limit (estimated RAM the parsed file may need; default 6 GB) - "
+                        "only raise it on a computer that has the RAM")
 
     i = sub.add_parser("infer", help="print a proposed schema for a file")
     i.add_argument("input")
@@ -101,7 +105,9 @@ def main(argv=None):
         if args.cmd == "approve-mapping":
             return _cmd_approve(args)
         if args.cmd == "infer":
-            tbl = read_source(args.input, max_bytes=100 * 1024 * 1024, fmt=args.format, table=args.table)
+            low = get_policy("low")
+            tbl = read_source(args.input, max_bytes=low.max_file_bytes, fmt=args.format, table=args.table,
+                              max_memory_bytes=low.max_memory_bytes)
             print(json.dumps(infer_schema(tbl, Path(args.input).stem).to_dict(), indent=2))
             return 0
         worst = 0
@@ -109,13 +115,19 @@ def main(argv=None):
             res = run_pipeline(path, workdir=args.workdir, policy_name=args.policy, schema_path=args.schema,
                                analysis_path=args.analysis, fmt=args.format, encoding=args.encoding,
                                delimiter=args.delimiter, table=args.table, records_path=args.records_path,
-                               accept_inferred=args.accept_inferred, actor=args.actor)
+                               accept_inferred=args.accept_inferred, actor=args.actor,
+                               max_file_mb=args.max_file_mb, max_memory_gb=args.max_memory_gb)
             print(f"{Path(path).name}: {res.status}  [{res.run_dir}]")
             for reason in res.reasons:
                 print(f"  - {reason}")
             c = res.document.get("counts")
             if c:
                 print(f"  rows: total={c['rows_total']} valid={c['valid']} quarantined={c['quarantined']}")
+                if c["quarantined"]:
+                    print(f"  bad rows and reasons: {res.run_dir / 'quarantine.csv'}")
+            out = (res.document.get("outputs") or {}).get("clean_csv")
+            if out:
+                print(f"  cleaned data: {res.run_dir / out['file']}  ({out['rows']} rows)")
             if args.json:
                 print(json.dumps(res.document, indent=2, default=str))
             worst = max(worst, res.exit_code)
@@ -128,7 +140,8 @@ def main(argv=None):
 def _cmd_map(args):
     policy = get_policy(args.policy)
     target = load_schema(args.schema)
-    tbl = read_source(args.input, max_bytes=policy.max_file_bytes, fmt=args.format, table=args.table)
+    tbl = read_source(args.input, max_bytes=policy.max_file_bytes, fmt=args.format, table=args.table,
+                      max_memory_bytes=policy.max_memory_bytes)
     if args.provider == "anthropic":
         provider = AnthropicProvider(model=args.model, base_url=args.base_url or "https://api.anthropic.com")
     elif args.provider == "openai-compat":
@@ -175,8 +188,12 @@ def _cmd_approve(args):
 
 def _cmd_review(args):
     from .webui import make_server
-    server = make_server(args.workdir, port=args.port, extra_dirs=args.dir, reviewer=args.reviewer,
-                         verbose=args.verbose, data_dirs=args.data_dir or [Path.cwd()])
+    try:
+        server = make_server(args.workdir, port=args.port, extra_dirs=args.dir, reviewer=args.reviewer,
+                             verbose=args.verbose, data_dirs=args.data_dir or [Path.cwd()])
+    except OSError as exc:
+        raise DataPipeError(f"cannot listen on 127.0.0.1:{args.port} ({exc.strerror or exc}). Another review may already be "
+                            "running there - stop it, or use --port 0 to pick a free port.")
     print("Mapping review UI (local only - it listens on 127.0.0.1 and nowhere else).")
     print(f"Open this link in your browser:  {server.url}")
     print("The link contains a secret that is valid until you stop the server; do not share it. Press Ctrl-C to stop.")

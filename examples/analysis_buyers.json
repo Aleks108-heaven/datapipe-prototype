@@ -1,0 +1,12 @@
+{
+  "metrics": [
+    {"name": "buyers_by_country", "description": "How many buyers per country and their average preference score",
+     "sql": "SELECT country, COUNT(*) AS buyers, ROUND(AVG(preference_score), 2) AS avg_score FROM data GROUP BY country ORDER BY buyers DESC, country"},
+    {"name": "budget_by_category", "description": "Total monthly budget per preferred category",
+     "sql": "SELECT preferred_category, COUNT(*) AS buyers, SUM(monthly_budget) AS total_budget FROM data GROUP BY preferred_category ORDER BY total_budget DESC, preferred_category"},
+    {"name": "channel_by_age_group", "description": "Preferred contact channel per age group",
+     "sql": "SELECT age_group, preferred_channel, COUNT(*) AS buyers FROM data GROUP BY age_group, preferred_channel ORDER BY age_group, buyers DESC, preferred_channel"},
+    {"name": "newsletter_share", "description": "Share of buyers who take the newsletter",
+     "sql": "SELECT COUNT(*) FILTER (WHERE newsletter) AS subscribed, COUNT(*) AS all_buyers FROM data"}
+  ]
+}

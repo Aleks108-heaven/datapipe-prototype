@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from .audit import AuditLog, default_actor
 from .errors import DataPipeError
+from .identity import clean_name, same_person
 from .llm.heuristic import name_score
 from .llm.providers import MappingProvider
 from .pipeline import canonical, sha256_of
@@ -235,7 +236,7 @@ def verify_manual_pair(table, target, source, target_name, *, min_parse_rate):
 # ------------------------------------------------------------------ proposal
 def propose_mapping(table, target, provider, policy, *, input_name, actor=None, audit=None,
                     min_confidence=0.8, min_parse_rate=0.98, read_options=None):
-    actor = actor or default_actor()
+    actor = clean_name(actor) or default_actor()
     mode = egress_mode(policy, provider)
     request = build_request(table, target, "shapes+samples" if mode == "shapes+samples" else "shapes")
     result = provider.propose(request)
@@ -307,7 +308,8 @@ def build_approved_schema(proposal, *, reviewer, accept_review=False, include=No
             for the same target, and its source may not also be used by another mapping.
     """
     verify_proposal_integrity(proposal)
-    if not reviewer or reviewer == proposal["actor"]:
+    reviewer = clean_name(reviewer)
+    if not reviewer or same_person(reviewer, proposal["actor"]):
         raise DataPipeError("four-eyes rule: the reviewer must be a different person than the one who proposed it")
     include, exclude = set(include or ()), set(exclude or ())
     known = {}
@@ -404,6 +406,7 @@ def record_decision(workdir, event, proposal, reviewer, *, schema=None, schema_f
 
 def approve_mapping(proposal, *, reviewer, accept_review=False, include=None, exclude=None, note="",
                     workdir=None, schema_file=None, manual=None, verify_manual=None):
+    reviewer = clean_name(reviewer)
     schema = build_approved_schema(proposal, reviewer=reviewer, accept_review=accept_review,
                                    include=include, exclude=exclude, note=note,
                                    manual=manual, verify_manual=verify_manual)
@@ -415,6 +418,7 @@ def approve_mapping(proposal, *, reviewer, accept_review=False, include=None, ex
 
 def reject_mapping(proposal, *, reviewer, note, workdir):
     verify_proposal_integrity(proposal)
+    reviewer = clean_name(reviewer)
     if not reviewer:
         raise DataPipeError("a reviewer name is required")
     if not note or not note.strip():

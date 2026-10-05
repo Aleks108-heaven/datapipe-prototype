@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 322 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 408 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -20,7 +20,22 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 A guided 5-minute walkthrough with a talk track: `python examples/demo.py --pause` (see [examples/DEMO.md](examples/DEMO.md)).
 
 Exit codes: 0 ok / pending sign-off, 1 failed, 2 blocked by policy, 3 schema needs confirmation.
-Each run writes `work/runs/<id>/` (`result.json`, `report.md`, `quarantine.csv`, `issues.json`) and appends to `work/audit.jsonl`.
+Each run writes `work/runs/<id>/` and appends to `work/audit.jsonl`:
+
+| File | What it is |
+| --- | --- |
+| `result.json`, `report.md` | status, counts, metrics, the effective size limits, and the hash of every output |
+| `clean.csv` | **the cleaned data**: the rows that passed every check, in file order, one column per schema column (ISO dates, plain decimals, `true`/`false`, empty = missing). Personal columns are masked in `business`/`regulated`. Text that a spreadsheet would run as a formula (`=...`, `@...`, `+cmd`) gets a leading `'`; numbers and phone numbers are never altered. Written only when every check passed; `signoff` re-checks its hash |
+| `quarantine.csv`, `issues.json` | the rows that failed and why. "row" counts data records (the first line after the header is row 1) |
+
+### Big files, and what computer you need
+
+Defaults: 300 MB per file (150 MB in `regulated`) and an **estimated 6 GB of memory** for the parsed rows. The memory estimate (about 400 bytes per row plus 170 bytes per cell) is what really limits you, not the file size: a normal table needs roughly 25x its size, a file of many tiny rows up to 300x. The run is refused early, with a clear message, when the estimate is over the limit. Measured on a 12-column file of 120 MB (1.13 million rows, `examples/make_synthetic_buyers.py`): 88 s and 2.5 GB of RAM, so a laptop with 16 GB is fine. Override per run if you know your machine: `--max-file-mb 600 --max-memory-gb 10` (the limits used are recorded in `result.json`).
+
+    python examples/make_synthetic_buyers.py buyers.csv --mb 120          # fake buyers/preferences data, any size
+    python -m datapipe run buyers.csv --policy business --schema examples/schema_buyers.json --analysis examples/analysis_buyers.json --actor me
+
+Platforms: pure Python + DuckDB, no OS-specific code in the load path (the temporary load file is created inside the run folder, never in `/tmp`, and deleted at once). CI runs the suite on Linux, macOS and Windows; the 120 MB measurement above was taken on Windows only.
 
 ## Policy tiers
 
@@ -90,7 +105,7 @@ A local web page (no external assets, works offline) lists every proposal in `wo
 
 - per mapping: source -> target, provider confidence, the deterministic evidence (fit %, distinctness, name similarity, other columns that would also fit), the verification reasons, and the provider's rationale (labelled as unverified text);
 - *exactly what was sent* to the LLM, and whether anything left the machine;
-- per-item **Include / Exclude** (verified items default to include, needs-review items default to exclude, rejected items are locked); overrides and rejections need a written note;
+- per-item **Include / Exclude** (verified items start as include; items that need review start undecided - neither option is selected and the column is left out unless you include it; rejected items are locked). Schemas with more than 8 columns also get "Only columns that need me" and "Next to decide"; overrides and rejections need a written note;
 - **Approve** writes `work/schemas/<name>-mapped-<id>.json` (with provenance) and records the decision in the audit log; **Reject** records the reason. Each proposal can be decided once.
 
 All rules are enforced on the server (four-eyes, hash seal, required columns, one decision per proposal, atomically under the audit-log lock), not just in the page.
@@ -117,7 +132,7 @@ When the provider missed a column or picked the wrong one, the reviewer can map 
 ## Known limitations (read before relying on it)
 
 - **Not production-ready.** No independent security review. Treat as a design-proving prototype.
-- Everything is processed in memory (file size limit 50-100 MB by tier); not built for big data.
+- Everything is processed in memory (size limit 150-300 MB and an estimated-RAM limit of 6 GB by default, both overridable per run, see "Big files"); a file of several GB needs the streaming redesign that is not built yet. Rows are loaded into the analysis engine through a temporary CSV file and `COPY` (a row-by-row load ran at ~100-1,000 rows/s and made the old 100 MB limit unreachable).
 - Identity is self-asserted (`--actor` / OS user). Four-eyes sign-off needs real authentication in a product.
 - The audit log detects edits, deletions and reordering, but not removal of its *tail*; store the printed head hash elsewhere.
 - SQL dumps: SQLite-compatible only (MySQL/Postgres dumps fail loudly). SQLite stores decimals as floats, so money read from SQL is converted via shortest repr and flagged with a warning.
@@ -158,7 +173,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - No independent penetration test or code review has been done.
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (288 tests, green on Linux/macOS/Windows x Python 3.10/3.13). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (408 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 
@@ -196,6 +211,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 
 ### Done (earlier sessions)
 - **Windows support for the audit log.** `audit.py` picks `flock` (POSIX) or an `msvcrt` byte-range lock (Windows); schema paths returned by the review service always use `/`.
+- **Review UI fixes, 2026-10-05** (`datapipe/webui/page.py`, `server.py`, `service.py`): arrow keys now move focus together with the selection and the focus ring is visible on the filled option (inset, flips colour); undecided items show no selection; the folded sections share one row and the action bar is one row, so the first decision is on the first screen at 390x844 and 1366x650; each column card is a labelled section with a heading; errors say what to do next and keep the reviewer's decisions; the command shown after approval uses absolute paths and `--workdir`; focus moves to the outcome after Approve; long file names wrap (no horizontal scroll at 320 px); text sizes use rem; placeholder contrast >= 4.5:1; hidden/direction-changing characters in names are shown as `[U+XXXX]`; a tampered proposal explains why it cannot be approved or rejected; forced-colours mode keeps control edges; on Windows a second `datapipe review` on a busy port now fails with a clear message instead of starting silently. Also fixed: a slow proposal-list answer could paint over the proposal you had just opened (the cause of the occasional browser-test failure); answers for a page you have already left are now ignored.
 - **Review UI accessibility** (`datapipe/webui/page.py`): real buttons for navigation (Enter/Space work), focus is kept across redraws, Include/Exclude is a proper radio group (one tab stop, arrow keys), route changes are announced through a small status region, the page title and focus follow the route, and timestamps are shown in UTC.
 - **Review UI structure:** the duplicated "Mappings" list and "Map columns yourself" table were merged into one card per schema column (evidence, decision, "use a different file column"). Cards are ordered by risk from the server's verdicts and stay put while the reviewer works; a summary line counts each group; a proposed target the schema does not list is still shown. Reject now says what it is missing.
 - **Bugs found and fixed by running the browser tests:** focus was pulled away from a field the reviewer was typing in; the action bar was rebuilt on every redraw and could swallow keystrokes; the HTTP server could reset connections on Windows when it refused a POST before reading its body (it now reads the bounded body first and has a 15 s socket timeout).

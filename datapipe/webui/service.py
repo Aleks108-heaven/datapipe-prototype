@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..audit import AuditLog
 from ..errors import DataPipeError
+from ..identity import clean_name
 from ..ingest import read_source
 from ..mapping import (build_approved_schema, proposal_state, record_decision, reject_mapping,
                        verify_manual_pair, verify_proposal_integrity)
@@ -43,7 +44,7 @@ class ReviewService:
         self.workdir = Path(workdir).resolve()
         self.dirs = [self.workdir / "mappings"] + [Path(d).resolve() for d in extra_dirs]
         self.data_dirs = [Path(d).resolve() for d in data_dirs]
-        self.fixed_reviewer = fixed_reviewer
+        self.fixed_reviewer = clean_name(fixed_reviewer) if fixed_reviewer else fixed_reviewer
         self._lock = threading.Lock()
         self._tables = {}                     # pid -> ((path, mtime_ns, size), RawTable)  (small cache)
 
@@ -153,7 +154,8 @@ class ReviewService:
             opts = proposal["source"].get("read_options") or {}
             try:
                 policy = get_policy(proposal.get("policy", "business"))
-                table = read_source(path, max_bytes=policy.max_file_bytes, fmt=opts.get("fmt"), table=opts.get("table"))
+                table = read_source(path, max_bytes=policy.max_file_bytes, fmt=opts.get("fmt"), table=opts.get("table"),
+                                    max_memory_bytes=policy.max_memory_bytes)
             except DataPipeError as exc:
                 return None, f"the source file could not be read: {str(exc)[:120]}"
             if len(self._tables) >= 4:
@@ -183,9 +185,12 @@ class ReviewService:
     # ------------------------------------------------------------ deciding
     def _reviewer(self, payload):
         name = self.fixed_reviewer if self.fixed_reviewer else payload.get("reviewer")
-        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 80 or _CTRL.search(name):
+        if not isinstance(name, str) or _CTRL.search(name):
             raise ApiError(400, "enter your name (1-80 characters)")
-        return name.strip()
+        name = clean_name(name)
+        if not name or len(name) > 80:
+            raise ApiError(400, "enter your name (1-80 characters)")
+        return name
 
     @staticmethod
     def _targets(value, field):
@@ -275,7 +280,8 @@ class ReviewService:
             finally:
                 if os.path.exists(tmp_name):
                     os.unlink(tmp_name)
-        return {"schema_file": rel.as_posix(), "fingerprint": schema.fingerprint(), "schema": schema.to_dict()}
+        return {"schema_file": rel.as_posix(), "schema_path": str(target.resolve()), "workdir": str(self.workdir.resolve()),
+                "fingerprint": schema.fingerprint(), "schema": schema.to_dict()}
 
     def reject(self, pid, payload):
         if not isinstance(payload, dict):
