@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 454 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 456 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -19,6 +19,8 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
     python -m datapipe app                              # the same thing in your browser: pick a file, run, read the results
 
 **The app** (`datapipe app`) opens a local page (127.0.0.1 only) with two tabs: *Run a file* (choose a data file, a schema and a metrics file from the folders you started it in, press Run, then read the counts and metrics tables and download `clean.csv`, `quarantine.csv` and `report.md`; it can also draft a schema from a file) and *Review mappings*. It lists files from the current folder (or each `--data-dir`, repeatable), from `<work>/inbox/` (drop files there) and, for schemas and metrics, from `examples/`; *Add your own files* in the page shows exactly which folders, runs one file at a time, and never accepts a path typed into the page. A one-page guide for testers: [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md).
+
+**Install on a laptop:** `python -m pip install git+https://github.com/Aleks108-heaven/datapipe-prototype.git`, then double-click a launcher in [launchers/](launchers) or run `python -m datapipe app` - see [docs/INSTALL.md](docs/INSTALL.md). Tested in a clean virtual environment on Windows (install, run from an unrelated folder, serve the app); a standalone `.exe`/`.app` is not built yet.
 
 A guided 5-minute walkthrough with a talk track: `python examples/demo.py --pause` (see [examples/DEMO.md](examples/DEMO.md)).
 
@@ -176,7 +178,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - No independent penetration test or code review has been done.
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (454 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (456 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 

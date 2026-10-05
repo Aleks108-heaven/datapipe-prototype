@@ -1,7 +1,12 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "datapipe"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Prototype: policy-driven, auditable pipeline for CSV/JSON/JSONL/SQL-dump data"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["duckdb>=1.0"]
 
@@ -10,6 +15,15 @@ test = ["pytest", "playwright"]
 
 [project.scripts]
 datapipe = "datapipe.cli:main"
+
+[project.urls]
+Source = "https://github.com/Aleks108-heaven/datapipe-prototype"
+
+[tool.setuptools.dynamic]
+version = {attr = "datapipe.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["datapipe*"]          # the repo also holds docs/, examples/, tests/ and work/, which are not part of the program
 
 [tool.pytest.ini_options]
 # langsmith ships a pytest plugin that crashes at start-up when its pydantic packages are mismatched (seen with scoop/global Python);

@@ -705,20 +705,21 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     app.appendChild(h('p', { class: 'small metaline' },
       h('span', { class: 'muted', text: 'Proposed by ' }), h('span', { text: p.actor + ' on ' + when(p.created) + ' · policy ' + p.policy }),
       h('br'), h('span', { class: 'muted', text: 'Data sent out: ' }), h('span', { text: egressText((p.egress || {}).mode) })));
+    // ONE folded section for everything that is not needed to decide: each separate fold costs a full row, and on a phone with
+    // Linux fonts three of them pushed the first decision below the first screen.
     app.appendChild(h('div', { class: 'folds' },
-      h('details', { id: 'more' }, h('summary', { text: 'More about this proposal' }), h('dl', { class: 'meta' },
+      h('details', { id: 'more' }, h('summary', { text: 'Details and help' }), h('dl', { class: 'meta' },
         h('dt', { text: 'Source file' }), h('dd', { text: show(p.source.name || '') + ' · ' + (p.source.format || '?') + ' · sha256 ' + String(p.source.sha256 || '').slice(0, 12) }),
         h('dt', { text: 'Provider' }), h('dd', { text: (p.provider.name || '?') + (p.provider.model ? ' (' + p.provider.model + ')' : '') + ' · ' + (p.provider.locality || '') }),
-        h('dt', { text: 'Thresholds' }), h('dd', { text: 'confidence ≥ ' + (p.thresholds || {}).min_confidence + ', value fit ≥ ' + pct((p.thresholds || {}).min_parse_rate) }))),
+        h('dt', { text: 'Thresholds' }), h('dd', { text: 'confidence ≥ ' + (p.thresholds || {}).min_confidence + ', value fit ≥ ' + pct((p.thresholds || {}).min_parse_rate) })),
       (p.egress && p.egress.payload) ? h('details', null, h('summary', { text: 'Exactly what was sent' }), h('pre', { id: 'payload', text: JSON.stringify(p.egress.payload, null, 2) })) : null,
-      // One folded explainer instead of a paragraph above the first card: the reviewer's first decision should be on the first screen.
       h('details', { id: 'legend' }, h('summary', { text: 'How to read this page' }),
         h('p', { class: 'small muted', text: 'One card per schema column; the ones that need you come first. Verified items are included by default, items that need review are left out until you include them, and refused items cannot be included. To use a different file column, choose it on the card: it is checked against the real values in the source file, and a note is required.' }),
         h('ul', { class: 'small' },
           h('li', { text: 'Values fit target type: how many of the non-empty values in the file column parse as the target type. This is the hard check; below the threshold the mapping is refused.' }),
           h('li', { text: 'Distinct values: share of values that are different from each other. Expect ~100% for an ID column and a low figure for a flag or category; it only matters when the target must be unique.' }),
           h('li', { text: 'Name similarity: how alike the file column name and the schema column name are. It is a hint, not proof.' }),
-          h('li', { text: 'Other columns that also fit: more than one column would pass the type check, so the name and the data alone cannot decide; you must.' })))));
+          h('li', { text: 'Other columns that also fit: more than one column would pass the type check, so the name and the data alone cannot decide; you must.' }))))));
 
     app.appendChild(h('h2', { class: 'sr-only', text: 'Mappings' }));
     app.appendChild(remapBox);

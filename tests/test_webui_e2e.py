@@ -138,7 +138,8 @@ def test_list_shows_proposals_with_counts_and_opens_detail(page, ui):
         expect(card(page, "order_date").get_by_role("radio", name=label)).to_have_attribute("aria-checked", "false")
     expect(card(page, "order_date")).to_contain_text("Not decided yet")
     expect(card(page, "amount").get_by_role("radio", name="Include")).to_have_attribute("aria-checked", "true")
-    page.locator("summary", has_text="Exactly what was sent").click()       # cloud provider: payload is inspectable
+    page.locator("#more > summary").click()                                   # one folded "Details and help" section...
+    page.locator("summary", has_text="Exactly what was sent").click()       # ...holding the payload: cloud provider, so it is inspectable
     expect(page.locator("#payload")).to_contain_text('"mode": "shapes"')
     assert "anna@example.com" not in page.locator("#payload").text_content()
     shot(page, "2-detail-desktop")
@@ -590,8 +591,11 @@ def test_undecided_items_show_no_choice_until_the_reviewer_makes_one(page, ui): 
 
 
 @pytest.mark.parametrize("viewport,bar_fixed", [({"width": 390, "height": 844}, False), ({"width": 1366, "height": 650}, True)])
-def test_first_decision_is_on_the_first_screen(page, ui, viewport, bar_fixed):                 # QA-009
+@pytest.mark.parametrize("text_px", [None, 18])             # 18 px ~ the taller default fonts of Linux: the layout must not fit by a hair on one platform only
+def test_first_decision_is_on_the_first_screen(page, ui, viewport, bar_fixed, text_px):        # QA-009
     open_detail(page, ui, ui.good, viewport=viewport)
+    if text_px:
+        page.evaluate("px => { document.body.style.fontSize = px + 'px'; }", text_px)
     box = card(page, "order_date").locator(".seg").bounding_box()
     limit = viewport["height"]
     if bar_fixed:
