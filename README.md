@@ -9,13 +9,16 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 436 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 450 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
     python -m datapipe infer examples/sales.csv         # propose a schema
     python -m datapipe signoff <run_id> --reviewer bob  # regulated runs need a *different* person
     python -m datapipe verify-audit
+    python -m datapipe app                              # the same thing in your browser: pick a file, run, read the results
+
+**The app** (`datapipe app`) opens a local page (127.0.0.1 only) with two tabs: *Run a file* (choose a data file, a schema and a metrics file from the folders you started it in, press Run, then read the counts and metrics tables and download `clean.csv`, `quarantine.csv` and `report.md`; it can also draft a schema from a file) and *Review mappings*. It lists files from the current folder (or `--data-dir`) and from `examples/`, runs one file at a time, and never accepts a path typed into the page. A one-page guide for testers: [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md).
 
 A guided 5-minute walkthrough with a talk track: `python examples/demo.py --pause` (see [examples/DEMO.md](examples/DEMO.md)).
 
@@ -173,7 +176,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - No independent penetration test or code review has been done.
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (436 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (450 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 
@@ -216,6 +219,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - **Worth knowing:** leading and trailing spaces are trimmed from CSV headers and values before validation (a value of `" 5 "` is read as `5`). The run now reports how many records were affected as a warning.
 - **Small UI items:** spacing now uses a token scale (`--s1`..`--s6`, only hairlines and one bar clearance stay literal); the page has an inline icon (CSP `img-src data:`), which removes Firefox's favicon console message; forced-colours styling and the focus ring were checked in Chromium, Firefox and WebKit (not on real Windows High Contrast, Safari or a screen reader).
 - **Products x buyers x preferences example (2026-10-05):** `examples/schema_products_buyers.json` (60 columns: order line, product, buyer, stated preferences) and `examples/analysis_products_buyers.json` (stated vs actual product group and channel, revenue per currency, plus built-in data checks for the line-total formula, orders before sign-up, cancelled orders with a review, return flag). Run on a 7,000-row and a 328,022-row (119 MB) file: all rows valid, 0 reconciliation mismatches, 126 s for the large one.
+- **The app, 2026-10-05:** `python -m datapipe app` and the *Run a file* tab (`datapipe/webui/runner.py`, endpoints under `/api/run/`). Same protections as the review page (secret link, CSRF, Host/Origin checks, strict CSP). Picks are ids from fresh scans of the named folders, never paths; symlinks are not listed; downloads are limited to five named files inside run folders and are streamed (a 120 MB `clean.csv` is never held in memory); one run at a time; earlier runs can be reopened. Metrics numbers are right-aligned in tables. The products example now has 20 metrics (revenue by loyalty tier and month, churn risk by income band, lifetime value by buyer type, top products, delivery days, review scores, returns by category, organic stated vs bought, plus 4 data checks); revenue, churn and monthly figures were recomputed independently in plain Python and match exactly on the 7,000-row file (and on the 328,022-row file).
 - **Review UI accessibility** (`datapipe/webui/page.py`): real buttons for navigation (Enter/Space work), focus is kept across redraws, Include/Exclude is a proper radio group (one tab stop, arrow keys), route changes are announced through a small status region, the page title and focus follow the route, and timestamps are shown in UTC.
 - **Review UI structure:** the duplicated "Mappings" list and "Map columns yourself" table were merged into one card per schema column (evidence, decision, "use a different file column"). Cards are ordered by risk from the server's verdicts and stay put while the reviewer works; a summary line counts each group; a proposed target the schema does not list is still shown. Reject now says what it is missing.
 - **Bugs found and fixed by running the browser tests:** focus was pulled away from a field the reviewer was typing in; the action bar was rebuilt on every redraw and could swallow keystrokes; the HTTP server could reset connections on Windows when it refused a POST before reading its body (it now reads the bounded body first and has a 15 s socket timeout).

@@ -12,7 +12,7 @@ _TEMPLATE = r"""<!doctype html>
 <meta name="color-scheme" content="light dark">
 <meta name="csrf" content="{{CSRF}}">
 <meta name="fixed-reviewer" content="{{FIXED}}">
-<title>Mapping Review</title>
+<title>datapipe</title>
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiByeD0iMyIgZmlsbD0iIzI3NTdkNiIvPjxwYXRoIGQ9Ik00IDguNWwzIDMgNS02IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiLz48L3N2Zz4=">
 <style nonce="{{NONCE}}">
 :root{
@@ -144,6 +144,21 @@ button.small{padding:var(--s2) var(--s3);min-height:var(--tap-sm);font-size:var(
 .statusline input{width:auto}
 .jump{display:none}
 @media (max-width:899px){.jump{display:inline-block}}
+header.top nav{display:flex;gap:var(--s2)}
+header.top nav a{color:var(--text);text-decoration:none;padding:var(--s2) var(--s3);border-radius:var(--r-md);min-height:var(--tap-sm);display:inline-flex;align-items:center}
+header.top nav a[aria-current=page]{background:var(--accent);color:var(--accent-ink);font-weight:650}
+header.top nav a:focus-visible,a.dl:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.runfields{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--s3);margin:var(--s3) 0}
+.runfield select,.runfield input{width:100%}
+a.dl{display:inline-flex;align-items:center;min-height:var(--tap);padding:var(--s2) var(--s4);border:1px solid var(--line-strong);border-radius:var(--r-md);color:var(--text);text-decoration:none}
+a.dl:hover{border-color:var(--accent)}
+.tablecard{overflow-x:auto}
+table.metric{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
+table.metric caption{text-align:left;font-weight:650;padding-bottom:var(--s2);text-transform:capitalize}
+table.metric th,table.metric td{text-align:left;padding:var(--s1) var(--s3);border-bottom:1px solid var(--line);white-space:nowrap}
+table.metric th{color:var(--muted);font-weight:600}
+table.metric .num{text-align:right;font-variant-numeric:tabular-nums}
+@media (forced-colors:active){header.top nav a[aria-current=page]{border-bottom:4px solid ButtonText}}
 html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus must not end up under the sticky strip or the action bar */
 .statusline+.card{margin-top:0}
 .metaline{margin:0 0 var(--s2)}
@@ -158,7 +173,9 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
 </style>
 </head>
 <body>
-<header class="top"><h1>Mapping review</h1><span class="sub" id="whoami"></span></header>
+<header class="top"><h1>datapipe</h1>
+<nav aria-label="Sections"><a href="#/run" id="nav-run">Run a file</a><a href="#/" id="nav-review">Review mappings</a></nav>
+<span class="sub" id="whoami"></span></header>
 <main id="app"></main>
 <div id="status" class="sr-only" role="status" aria-live="polite"></div>
 <script nonce="{{NONCE}}">
@@ -195,7 +212,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
   var statusBox = document.getElementById('status');
   // Screen-reader feedback for a route change: announce it, name the tab, and move focus to the page heading.
   function arrived(title, heading, announcement) {
-    document.title = title + ' – Mapping review';
+    document.title = title + ' – datapipe';
     statusBox.textContent = announcement;
     if (heading) { heading.setAttribute('tabindex', '-1'); heading.focus({ preventScroll: true }); }
   }
@@ -711,10 +728,183 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     draw();
   }
 
+  // ------------------------------------------------------------------ run view ("Run a file")
+  var RUN_STATUS = {
+    COMPLETED: ['b-ok', 'Done', 'Every row passed the checks.'],
+    COMPLETED_WITH_WARNINGS: ['b-warn', 'Done, with warnings', 'Finished. Some rows were set aside; the list and the reasons are in the files below.'],
+    PENDING_SIGNOFF: ['b-warn', 'Waiting for a second person', 'Finished, but this policy needs a different person to sign it off (command: datapipe signoff).'],
+    BLOCKED: ['b-bad', 'Stopped by the policy', 'The policy refused to produce results. The reasons are listed below.'],
+    FAILED: ['b-bad', 'Could not finish', 'The run stopped with an error. The reasons are listed below.'],
+    NEEDS_SCHEMA_CONFIRMATION: ['b-warn', 'Schema needs confirming', 'Review the schema, then run again.']
+  };
+  var RUN_ID_RE = /^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$/;
+  var runForm = { file: '', schema: '', analysis: '', policy: 'business', actor: '' };
+  var POLICY_TEXT = {
+    low: 'Low: personal columns are kept as they are. Use for data that is not sensitive.',
+    business: 'Business: personal columns are masked in the outputs. A small share of bad rows is tolerated (5%).',
+    regulated: 'Regulated: stricter. Any bad row stops the run, and a second person must sign off.'
+  };
+
+  function showRun(runId) {
+    var seq = ++navSeq;
+    clear(app);
+    app.appendChild(h('p', { class: 'muted', text: 'Loading…' }));
+    api('/api/run/options').then(function (o) { if (seq === navSeq) buildRun(o, runId, seq); })
+      .catch(function (e) { if (seq === navSeq) showError(e); });
+  }
+
+  function opt(item) { return h('option', { value: item.id, text: item.name + '  (' + item.size + ', ' + item.where + ')' }); }
+  function field(label, id, control, hint) {
+    return h('div', { class: 'runfield' }, h('label', { class: 'f', for: id, text: label }), control, hint ? h('div', { class: 'small muted', text: hint }) : null);
+  }
+
+  function buildRun(o, runId, seq) {
+    clear(app);
+    var heading = h('h2', { text: 'Run a file' });
+    app.appendChild(heading);
+    arrived('Run a file', heading, 'Run a file');
+    if (!runForm.actor) runForm.actor = o.default_actor || '';
+    var files = h('select', { id: 'run-file' }, h('option', { value: '', text: o.files.length ? 'Choose a file…' : 'No data files found' }), o.files.map(opt));
+    var schemas = h('select', { id: 'run-schema' }, h('option', { value: '', text: o.schemas.length ? 'Choose a schema…' : 'No schema files found' }), o.schemas.map(opt));
+    var analyses = h('select', { id: 'run-analysis' }, h('option', { value: '', text: 'No metrics (cleaning only)' }), o.analyses.map(opt));
+    var policy = h('select', { id: 'run-policy' }, o.policies.map(function (p) { return h('option', { value: p.name, text: p.name }); }));
+    var actor = h('input', { id: 'run-actor', type: 'text', maxlength: '80', autocomplete: 'off', value: runForm.actor });
+    var go = h('button', { type: 'button', class: 'primary', id: 'run-go', text: 'Run' });
+    var draft = h('button', { type: 'button', class: 'secondary small', id: 'run-draft', text: 'Draft a schema from the chosen file' });
+    var msg = h('div', { class: 'small', id: 'run-msg', role: 'status' });
+    var policyNote = h('div', { class: 'small muted', id: 'policy-note' });
+    var resultBox = h('div', { id: 'run-result' });
+    [['file', files], ['schema', schemas], ['analysis', analyses], ['policy', policy]].forEach(function (x) {
+      var wanted = runForm[x[0]];
+      if (wanted && Array.prototype.some.call(x[1].options, function (op) { return op.value === wanted; })) x[1].value = wanted;
+    });
+    function remember() { runForm.file = files.value; runForm.schema = schemas.value; runForm.analysis = analyses.value; runForm.policy = policy.value; runForm.actor = actor.value; }
+    function refresh() {
+      remember();
+      policyNote.textContent = POLICY_TEXT[policy.value] || '';
+      go.disabled = !(files.value && schemas.value && actor.value.trim());
+      draft.disabled = !files.value;
+    }
+    [files, schemas, analyses, policy].forEach(function (c) { c.addEventListener('change', refresh); });
+    actor.addEventListener('input', refresh);
+
+    app.appendChild(h('div', { class: 'card' },
+      h('p', { class: 'small muted', text: 'Everything stays on this computer. Pick a data file and the schema that describes it; the cleaned data, the bad rows and the metrics are written to a new run folder.' }),
+      h('div', { class: 'runfields' },
+        field('Data file', 'run-file', files, o.files.length ? null : 'Put the file in the folder you started this app from, or start it with --data-dir <folder>.'),
+        field('Schema (what each column should look like)', 'run-schema', schemas, 'No schema yet? Choose the file, then use the draft button below.'),
+        field('Metrics (what the report should answer)', 'run-analysis', analyses),
+        field('Policy', 'run-policy', policy), field('Your name (goes into the audit log)', 'run-actor', actor)),
+      policyNote, h('div', { class: 'btns' }, go, draft), msg));
+    app.appendChild(resultBox);
+
+    var recent = h('div', { class: 'card' }, h('h3', { text: 'Earlier runs' }));
+    if (!o.recent.length) recent.appendChild(h('p', { class: 'small muted', text: 'None yet.' }));
+    o.recent.forEach(function (r) {
+      var c = r.counts || {};
+      recent.appendChild(h('div', { class: 'row small' },
+        h('button', { type: 'button', class: 'back', text: (r.file || '(file)') + ' · ' + r.run_id.slice(0, 15), onclick: function () { location.hash = '#/run/' + r.run_id; } }),
+        badge(RUN_STATUS_BADGE, r.status), c.rows_total !== undefined ? h('span', { class: 'muted', text: c.valid + ' valid of ' + c.rows_total + ' rows' }) : null));
+    });
+    app.appendChild(recent);
+    refresh();
+
+    draft.addEventListener('click', function () {
+      msg.textContent = 'Reading the file…'; draft.disabled = true;
+      api('/api/run/draft-schema', { method: 'POST', body: { file: files.value } }).then(function (res) {
+        msg.textContent = 'Draft saved (' + res.columns + ' columns): ' + res.saved_as + '. ' + res.note + ' Reload this page to pick it from the list.';
+        refresh();
+      }).catch(function (e) { msg.textContent = e.message; refresh(); });
+    });
+    go.addEventListener('click', function () {
+      go.disabled = true; msg.textContent = 'Starting…';
+      clear(resultBox);
+      api('/api/run/start', { method: 'POST', body: { file: files.value, schema: schemas.value, analysis: analyses.value, policy: policy.value, actor: actor.value.trim() } })
+        .then(function () { watch(seq, msg, go, refresh); })
+        .catch(function (e) { msg.textContent = e.message; refresh(); });
+    });
+
+    if (runId && RUN_ID_RE.test(runId)) {
+      api('/api/run/result?run=' + runId).then(function (r) { if (seq === navSeq) renderResult(resultBox, r); })
+        .catch(function (e) { if (seq === navSeq) msg.textContent = e.message; });
+    } else {
+      api('/api/run/status').then(function (s) { if (seq === navSeq && s.state === 'running') watch(seq, msg, go, refresh); }).catch(function () {});
+    }
+  }
+
+  var RUN_STATUS_BADGE = {};
+  Object.keys(RUN_STATUS).forEach(function (k) { RUN_STATUS_BADGE[k] = [RUN_STATUS[k][0], RUN_STATUS[k][1]]; });
+
+  // Poll while a run is going. Stops by itself when the reviewer leaves the page (navSeq changes).
+  function watch(seq, msg, go, refresh) {
+    go.disabled = true;
+    api('/api/run/status').then(function (s) {
+      if (seq !== navSeq) return;
+      if (s.state === 'running') {
+        msg.textContent = 'Running ' + (s.file || '') + '… ' + s.elapsed + ' s. A 100 MB file takes about 1–2 minutes; keep this page open.';
+        setTimeout(function () { watch(seq, msg, go, refresh); }, 1500);
+      } else if (s.state === 'done') {
+        location.hash = '#/run/' + s.run_id;
+      } else if (s.state === 'error') {
+        msg.textContent = 'The run could not start: ' + (s.error || 'unknown error'); refresh();
+      } else { refresh(); }
+    }).catch(function (e) {
+      if (seq !== navSeq) return;
+      msg.textContent = e.message; refresh();
+    });
+  }
+
+  function renderResult(box, r) {
+    clear(box);
+    var st = RUN_STATUS[r.status] || ['b-neutral', String(r.status), ''];
+    var card = h('div', { class: 'card', id: 'run-summary' },
+      h('div', { class: 'row spread' }, h('h3', { text: 'Result for ' + (r.source || 'file') }), h('span', { class: 'badge ' + st[0], text: st[1] })),
+      h('p', { class: 'small', text: st[2] }));
+    var c = r.counts;
+    if (c) {
+      card.appendChild(h('div', { class: 'row small' },
+        h('span', { class: 'chip', text: c.rows_total + ' rows read' }), h('span', { class: 'chip', text: c.valid + ' valid' }),
+        h('span', { class: 'chip', text: c.quarantined + ' set aside' }),
+        r.reconciliation && r.reconciliation.checks ? h('span', { class: 'chip', text: r.reconciliation.checks + ' cross-checks, ' + r.reconciliation.mismatches + ' mismatches' }) : null));
+    }
+    if (r.reasons.length) card.appendChild(h('ul', { class: 'reasons' + (r.status === 'FAILED' || r.status === 'BLOCKED' ? ' rej' : '') }, r.reasons.map(function (x) { return h('li', { text: x }); })));
+    if (r.warnings.length) card.appendChild(h('ul', { class: 'reasons' }, r.warnings.map(function (x) { return h('li', { text: x }); })));
+    var labels = { 'clean.csv': 'Cleaned data (clean.csv)', 'quarantine.csv': 'Bad rows and why (quarantine.csv)', 'report.md': 'Report (report.md)', 'result.json': 'Result (result.json)', 'issues.json': 'Issues (issues.json)' };
+    if (r.files.length && RUN_ID_RE.test(r.run_id)) {
+      var links = h('div', { class: 'btns' });
+      r.files.forEach(function (n) {
+        if (!labels[n]) return;
+        links.appendChild(h('a', { class: 'dl', href: '/api/run/download/' + r.run_id + '/' + n, text: labels[n] }));
+      });
+      card.appendChild(h('p', { class: 'small muted', text: 'Download (saved copies are also in the run folder):' }));
+      card.appendChild(links);
+    }
+    card.appendChild(h('p', { class: 'small muted', text: 'Run folder: ' + r.folder }));
+    if (r.outputs && r.outputs.clean_csv && r.policy !== 'low') card.appendChild(h('p', { class: 'small muted', text: 'Do not edit and re-save clean.csv: its checksum is recorded in the audit log.' }));
+    box.appendChild(card);
+    Object.keys(r.metrics).forEach(function (name) {
+      var m = r.metrics[name];
+      var numeric = m.columns.map(function (cn, i) { return m.rows.length > 0 && m.rows.every(function (row) { return /^-?[0-9]+(\.[0-9]+)?$/.test(row[i]); }); });
+      var head = h('tr', null, m.columns.map(function (cn, i) { return h('th', { scope: 'col', class: numeric[i] ? 'num' : null, text: cn }); }));
+      var table = h('table', { class: 'metric' }, h('caption', { text: name.replace(/_/g, ' ') }), h('thead', null, head),
+        h('tbody', null, m.rows.map(function (row) { return h('tr', null, row.map(function (v, i) { return h('td', { class: numeric[i] ? 'num' : null, text: v }); })); })));
+      box.appendChild(h('div', { class: 'card tablecard' }, table,
+        m.total_rows > m.rows.length ? h('p', { class: 'small muted', text: 'Showing the first ' + m.rows.length + ' of ' + m.total_rows + ' rows. The report file has all of them.' }) : null));
+    });
+    box.scrollIntoView({ block: 'start' });
+  }
+
   // ------------------------------------------------------------------ routing
+  function markNav(which) {
+    document.getElementById('nav-run').setAttribute('aria-current', which === 'run' ? 'page' : 'false');
+    document.getElementById('nav-review').setAttribute('aria-current', which === 'review' ? 'page' : 'false');
+  }
   function route() {
     var m = /^#\/p\/([0-9a-f]{64})$/.exec(location.hash);
-    if (m && ID_RE.test(m[1])) showDetail(m[1]); else showList();
+    var r = /^#\/run(?:\/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}))?$/.exec(location.hash);
+    markNav(r ? 'run' : 'review');
+    if (r) showRun(r[1]);
+    else if (m && ID_RE.test(m[1])) showDetail(m[1]); else showList();
   }
   // Unsaved work (decisions, manual mappings, a typed note) lives only in this page: ask before reload, close or leaving the proposal.
   var currentHash = location.hash;

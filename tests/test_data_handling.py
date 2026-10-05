@@ -203,4 +203,4 @@ def test_products_buyers_example_schema_and_metrics_load_and_agree():
     spec = load_analysis(EX / "analysis_products_buyers.json")
     assert len(schema.columns) == 60 and [c.name for c in schema.columns if c.pii] == ["buyer_name", "city"]
     assert sum(1 for c in schema.columns if c.unique) == 1
-    assert len(spec.metrics) == 11
+    assert len(spec.metrics) == 20

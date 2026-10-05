@@ -17,12 +17,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from .page import render_page
+from .runner import RunService
 from .service import ApiError, ReviewService
 
 MAX_BODY = 64 * 1024
 _ID = r"[0-9a-f]{64}"
 _ROUTE_ONE = re.compile(rf"^/api/proposals/({_ID})$")
 _ROUTE_ACT = re.compile(rf"^/api/proposals/({_ID})/(approve|reject|check)$")
+_ROUTE_DOWNLOAD = re.compile(r"^/api/run/download/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/([a-z_.]+)$")
 COOKIE = "dp_session"
 
 
@@ -32,8 +34,8 @@ class ReviewServer(ThreadingHTTPServer):
     # port that is already being served, so the printed link silently talks to the wrong process (401 on every try).
     allow_reuse_address = os.name != "nt"
 
-    def __init__(self, addr, service, token, csrf, verbose=False):
-        self.service, self.token, self.csrf, self.verbose = service, token, csrf, verbose
+    def __init__(self, addr, service, token, csrf, verbose=False, runner=None):
+        self.service, self.token, self.csrf, self.verbose, self.runner = service, token, csrf, verbose, runner
         super().__init__(addr, Handler)
         self.port = self.server_address[1]
         self.allowed_hosts = {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
@@ -101,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/":
                 supplied = parse_qs(url.query).get("t", [""])[0]
                 if supplied and hmac.compare_digest(supplied.encode(), self.server.token.encode()):
-                    return self._redirect_with_cookie()
+                    return self._redirect_with_cookie(parse_qs(url.query).get("go", [""])[0])
                 if not self._authed():
                     return self._send(401, b"Open the link printed by 'datapipe review' to use this page.\n",
                                       "text/plain; charset=utf-8")
@@ -113,6 +115,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, page.encode(), "text/html; charset=utf-8", csp=csp)
             if not self._authed():
                 return self._error(401, "not authenticated")
+            if url.path.startswith("/api/run/"):
+                return self._run_get(url)
             if url.path == "/api/proposals":
                 return self._json(200, self.server.service.list_proposals())
             m = _ROUTE_ONE.match(url.path)
@@ -124,10 +128,42 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self._internal()
 
-    def _redirect_with_cookie(self):
+    def _run_get(self, url):
+        runner = self.server.runner
+        if runner is None:
+            return self._error(404, "not found")
+        if url.path == "/api/run/options":
+            return self._json(200, runner.options())
+        if url.path == "/api/run/status":
+            return self._json(200, runner.status())
+        if url.path == "/api/run/result":
+            return self._json(200, runner.result(parse_qs(url.query).get("run", [""])[0]))
+        m = _ROUTE_DOWNLOAD.match(url.path)
+        if m:
+            path, ctype = runner.download_path(m.group(1), m.group(2))
+            return self._send_file(path, ctype, f"{m.group(1)}-{m.group(2)}")
+        return self._error(404, "not found")
+
+    def _send_file(self, path, ctype, download_name):
+        """Stream a file (a cleaned dataset can be hundreds of MB, so never read it into memory)."""
+        size = path.stat().st_size
+        self.send_response(200)
+        self._headers(ctype, {"Content-Disposition": f'attachment; filename="{download_name}"'})
+        self.send_header("Content-Length", str(size))
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        with open(path, "rb") as fh:
+            while True:
+                block = fh.read(1024 * 1024)
+                if not block:
+                    break
+                self.wfile.write(block)
+
+    def _redirect_with_cookie(self, go=None):
         self.send_response(303)
         self._headers("text/plain; charset=utf-8", {
-            "Location": "/",
+            "Location": "/#/run" if go == "run" else "/",
             "Set-Cookie": f"{COOKIE}={self.server.token}; HttpOnly; SameSite=Strict; Path=/"})
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -172,7 +208,11 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw or b"null")
             except ValueError:
                 return self._error(400, "body is not valid JSON")
-            m = _ROUTE_ACT.match(urlsplit(self.path).path)
+            path = urlsplit(self.path).path
+            if path in ("/api/run/start", "/api/run/draft-schema") and self.server.runner is not None:
+                runner = self.server.runner
+                return self._json(200, (runner.start if path.endswith("start") else runner.draft_schema)(payload))
+            m = _ROUTE_ACT.match(path)
             if not m:
                 return self._error(404, "not found")
             pid, action = m.groups()
@@ -197,7 +237,8 @@ class Handler(BaseHTTPRequestHandler):
     do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _method_not_allowed
 
 
-def make_server(workdir, *, port=0, extra_dirs=(), reviewer=None, token=None, verbose=False, data_dirs=()):
+def make_server(workdir, *, port=0, extra_dirs=(), reviewer=None, token=None, verbose=False, data_dirs=(), config_dirs=()):
     service = ReviewService(workdir, extra_dirs=extra_dirs, fixed_reviewer=reviewer, data_dirs=data_dirs)
+    runner = RunService(workdir, data_dirs=data_dirs, config_dirs=config_dirs)
     return ReviewServer(("127.0.0.1", port), service, token or secrets.token_urlsafe(24),
-                        secrets.token_urlsafe(24), verbose=verbose)
+                        secrets.token_urlsafe(24), verbose=verbose, runner=runner)

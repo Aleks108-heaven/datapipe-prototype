@@ -87,6 +87,15 @@ def build_parser():
     rv.add_argument("--reviewer", help="lock the reviewer name for this session (otherwise the reviewer types it)")
     rv.add_argument("--verbose", action="store_true")
 
+    ap = sub.add_parser("app", help="start the local app in your browser: run a file, see the results, review mappings")
+    ap.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 = pick a free one)")
+    ap.add_argument("--data-dir", action="append", default=[],
+                    help="folder with your data files (repeatable; default: the current folder)")
+    ap.add_argument("--dir", action="append", default=[], help="extra folder with proposal JSON files (repeatable)")
+    ap.add_argument("--reviewer", help="lock the reviewer name for this session")
+    ap.add_argument("--no-browser", action="store_true", help="only print the link")
+    ap.add_argument("--verbose", action="store_true")
+
     sub.add_parser("verify-audit", help="check the audit log hash chain")
     sub.add_parser("policies", help="show the policy tiers")
     return p
@@ -107,7 +116,7 @@ def main(argv=None):
             out = signoff(args.workdir, args.run_id, args.reviewer, args.note)
             print(f"signed off {out['run_id']} by {out['reviewer']} (audit {out['audit_hash'][:12]})")
             return 0
-        if args.cmd == "review":
+        if args.cmd in ("review", "app"):
             return _cmd_review(args)
         if args.cmd == "map":
             return _cmd_map(args)
@@ -197,14 +206,25 @@ def _cmd_approve(args):
 
 def _cmd_review(args):
     from .webui import make_server
+    is_app = args.cmd == "app"
+    examples = Path.cwd() / "examples"
     try:
         server = make_server(args.workdir, port=args.port, extra_dirs=args.dir, reviewer=args.reviewer,
-                             verbose=args.verbose, data_dirs=args.data_dir or [Path.cwd()])
+                             verbose=args.verbose, data_dirs=args.data_dir or [Path.cwd()],
+                             config_dirs=[examples] if is_app and examples.is_dir() else [])
     except OSError as exc:
         raise DataPipeError(f"cannot listen on 127.0.0.1:{args.port} ({exc.strerror or exc}). Another review may already be "
                             "running there - stop it, or use --port 0 to pick a free port.")
-    print("Mapping review UI (local only - it listens on 127.0.0.1 and nowhere else).")
-    print(f"Open this link in your browser:  {server.url}")
+    link = server.url + ("&go=run" if is_app else "")
+    print("datapipe app (local only - it listens on 127.0.0.1 and nowhere else)." if is_app
+          else "Mapping review UI (local only - it listens on 127.0.0.1 and nowhere else).")
+    print(f"Open this link in your browser:  {link}", flush=True)
+    if is_app and not args.no_browser:
+        try:
+            import webbrowser
+            webbrowser.open(link)
+        except Exception:
+            pass
     print("The link contains a secret that is valid until you stop the server; do not share it. Press Ctrl-C to stop.")
     print("To use it from another machine, tunnel the port over SSH instead of exposing it.")
     try:
