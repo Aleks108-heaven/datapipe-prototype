@@ -163,6 +163,21 @@ table.metric th{color:var(--muted);font-weight:600}
 .warn-note{color:var(--warn)}
 .warn-note button{margin-left:var(--s2)}
 table.metric .num{text-align:right;font-variant-numeric:tabular-nums}
+/* Phones: the reviewer's first decision must be on the first screen even with taller fonts (Linux) or larger text, so the chrome above it is tight. */
+.titlerow h2{margin:0}
+@media (max-width:520px){
+  header.top{padding:var(--s2) var(--s3);flex-wrap:wrap;gap:var(--s1) var(--s2)}
+  header.top h1{font-size:.95rem}
+  header.top nav{gap:var(--s1)}
+  header.top nav a{min-height:36px;padding:var(--s1) var(--s3)}
+  main{padding-top:var(--s3)}
+  .titlerow{gap:var(--s1);margin-bottom:var(--s1)}
+  button.back{padding:0}
+  .statusline p{min-width:140px}
+  .statusline{padding:var(--s1) 0;margin-bottom:var(--s2)}
+  .metaline{margin-bottom:var(--s1)}
+  summary{padding:var(--s2) 0}
+}
 @media (forced-colors:active){header.top nav a[aria-current=page]{border-bottom:4px solid ButtonText}}
 html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus must not end up under the sticky strip or the action bar */
 .statusline+.card{margin-top:0}
@@ -703,7 +718,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     app.appendChild(h('div', { class: 'statusline' }, summaryBox, wide ? filterLabel : null, wide ? nextBtn : null, jumpBtn));
     // The three facts a reviewer needs before deciding stay visible but take two lines; everything else is one click away.
     app.appendChild(h('p', { class: 'small metaline' },
-      h('span', { class: 'muted', text: 'Proposed by ' }), h('span', { text: p.actor + ' on ' + when(p.created) + ' · policy ' + p.policy }),
+      h('span', { class: 'muted', text: 'Proposed by ' }), h('span', { text: p.actor + ' · ' + when(p.created) + ' · ' + p.policy }),
       h('br'), h('span', { class: 'muted', text: 'Data sent out: ' }), h('span', { text: egressText((p.egress || {}).mode) })));
     // ONE folded section for everything that is not needed to decide: each separate fold costs a full row, and on a phone with
     // Linux fonts three of them pushed the first decision below the first screen.
