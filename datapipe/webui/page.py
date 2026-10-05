@@ -182,7 +182,7 @@ table.metric .num{text-align:right;font-variant-numeric:tabular-nums}
 @media (max-width:520px){
   header.top{padding:var(--s2) var(--s3);flex-wrap:wrap;gap:var(--s1) var(--s2)}
   header.top h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}     /* the tab title already says datapipe; the nav needs the width */
-  header.top nav a.gear .navtext{display:none}
+  header.top nav a .navtext{display:none}                                  /* phones: short labels; the full names stay as aria-labels */
   header.top nav a.gear{min-width:var(--tap-sm);justify-content:center}
   header.top nav{gap:var(--s1)}
   header.top nav a{min-height:36px;padding:var(--s1) var(--s3)}
@@ -210,7 +210,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
 </head>
 <body>
 <header class="top"><h1>datapipe</h1>
-<nav aria-label="Sections"><a href="#/run" id="nav-run">Run a file</a><a href="#/" id="nav-review">Review mappings</a><a href="#/settings" id="nav-settings" class="gear" aria-label="Settings"><span aria-hidden="true">⚙</span><span class="navtext"> Settings</span></a></nav>
+<nav aria-label="Sections"><a href="#/run" id="nav-run" aria-label="Run a file">Run<span class="navtext"> a file</span></a><a href="#/" id="nav-review" aria-label="Review mappings">Review<span class="navtext"> mappings</span></a><a href="#/settings" id="nav-settings" class="gear" aria-label="Settings"><span aria-hidden="true">⚙</span><span class="navtext"> Settings</span></a></nav>
 <span class="sub" id="whoami"></span></header>
 <main id="app"></main>
 <div id="status" class="sr-only" role="status" aria-live="polite"></div>

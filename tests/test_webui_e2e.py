@@ -683,10 +683,9 @@ def test_a_slow_list_answer_cannot_paint_over_the_proposal_that_was_opened(brows
     ctx.close()
 
 
-@pytest.mark.parametrize("text_px", [None, 18])
-def test_the_header_stays_one_row_on_a_phone_so_it_cannot_push_the_first_decision_down(page, ui, text_px):
+@pytest.mark.parametrize("font,text_px", [(None, None), (None, 18), ("Verdana, sans-serif", 20)])    # the last one imitates the wide, tall default fonts of Linux
+def test_the_header_stays_one_row_on_a_phone_so_it_cannot_push_the_first_decision_down(page, ui, font, text_px):
     open_detail(page, ui, ui.good, viewport={"width": 390, "height": 844})
-    if text_px:
-        page.evaluate("px => { document.body.style.fontSize = px + 'px'; }", text_px)
+    page.evaluate("([f, px]) => { if (f) document.body.style.fontFamily = f; if (px) document.body.style.fontSize = px + 'px'; }", [font, text_px])
     assert page.locator("header.top").bounding_box()["height"] < 64, page.locator("header.top").bounding_box()
     assert page.get_by_role("link", name="Settings").is_visible()                           # the gear is still there, just without its label
