@@ -209,9 +209,10 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._error(400, "body is not valid JSON")
             path = urlsplit(self.path).path
-            if path in ("/api/run/start", "/api/run/draft-schema") and self.server.runner is not None:
+            if path in ("/api/run/start", "/api/run/draft-schema", "/api/run/check") and self.server.runner is not None:
                 runner = self.server.runner
-                return self._json(200, (runner.start if path.endswith("start") else runner.draft_schema)(payload))
+                action = {"/api/run/start": runner.start, "/api/run/draft-schema": runner.draft_schema, "/api/run/check": runner.check}[path]
+                return self._json(200, action(payload))
             m = _ROUTE_ACT.match(path)
             if not m:
                 return self._error(404, "not found")

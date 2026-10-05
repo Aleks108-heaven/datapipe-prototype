@@ -4,6 +4,7 @@ The browser never sends a path: it picks from lists this module builds from fold
 checked against a fresh scan of those folders. One run at a time (a run can use gigabytes of RAM). Results are read back
 from the run folder, so a finished run can be reopened later.
 """
+import csv
 import hashlib
 import json
 import re
@@ -17,7 +18,7 @@ from ..ingest import read_source
 from ..audit import default_actor
 from ..pipeline import RUN_ID_RE, run_pipeline
 from ..policy import POLICIES, get_policy
-from ..schema import infer_schema
+from ..schema import infer_schema, load_schema
 from .service import ApiError
 
 DATA_SUFFIXES = {".csv", ".tsv", ".jsonl", ".json", ".sql"}
@@ -193,6 +194,54 @@ class RunService:
             outcome = {"state": "error", "file": file.name, "error": f"unexpected internal error ({type(exc).__name__}); see the terminal"}
         with self._lock:
             self._job = outcome
+
+    # ------------------------------------------------------------ does this schema fit this file?
+    @staticmethod
+    def _header(path):
+        """Column names of a CSV/TSV file from its first line only (cheap even for a 1 GB file); None for other formats."""
+        if path.suffix.lower() not in (".csv", ".tsv"):
+            return None
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace", newline="") as fh:
+                first = fh.readline()
+        except OSError:
+            return None
+        counts = {d: first.count(d) for d in ",;\t|"}
+        delim = max(counts, key=counts.get) if max(counts.values()) > 0 else ","
+        try:
+            return [h.strip() for h in next(csv.reader([first], delimiter=delim))]
+        except (csv.Error, StopIteration):
+            return None
+
+    def check(self, payload):
+        """Compare the file's header with each schema: how many schema columns the file has, which required ones are missing,
+        and which schema fits best. Statistics and column names of the schema only - no file values."""
+        if not isinstance(payload, dict):
+            raise ApiError(400, "invalid request")
+        data, schemas, _ = self._scan()
+        file = self._pick(data, str(payload.get("file", "")), "file")
+        header = self._header(file)
+        if header is None:
+            return {"known": False}
+        have = set(header)
+        fits = []
+        for item in schemas:
+            try:
+                sch = load_schema(item["_path"])
+            except DataPipeError:
+                continue
+            cols = sch.columns
+            missing = [c.name for c in cols if c.src not in have]
+            required_missing = [c.name for c in cols if c.required and c.src not in have]
+            known = {c.src for c in cols}
+            fits.append({"id": item["id"], "name": item["name"], "schema_columns": len(cols), "matched": len(cols) - len(missing),
+                         "missing_required": required_missing[:12], "missing_required_count": len(required_missing),
+                         "extra_in_file": sum(1 for h in header if h not in known)})
+        fits.sort(key=lambda f: (f["missing_required_count"], -f["matched"], f["extra_in_file"]))
+        by_id = {f["id"]: f for f in fits}
+        chosen = by_id.get(str(payload.get("schema", "")))
+        best = fits[0] if fits else None
+        return {"known": True, "file_columns": len(header), "chosen": chosen, "best": best}
 
     # ------------------------------------------------------------ drafting a schema
     def draft_schema(self, payload):

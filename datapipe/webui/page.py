@@ -157,6 +157,9 @@ table.metric{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
 table.metric caption{text-align:left;font-weight:650;padding-bottom:var(--s2);text-transform:capitalize}
 table.metric th,table.metric td{text-align:left;padding:var(--s1) var(--s3);border-bottom:1px solid var(--line);white-space:nowrap}
 table.metric th{color:var(--muted);font-weight:600}
+.ok-note{color:var(--ok)}
+.warn-note{color:var(--warn)}
+.warn-note button{margin-left:var(--s2)}
 table.metric .num{text-align:right;font-variant-numeric:tabular-nums}
 @media (forced-colors:active){header.top nav a[aria-current=page]{border-bottom:4px solid ButtonText}}
 html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus must not end up under the sticky strip or the action bar */
@@ -779,12 +782,40 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
       if (wanted && Array.prototype.some.call(x[1].options, function (op) { return op.value === wanted; })) x[1].value = wanted;
     });
     function remember() { runForm.file = files.value; runForm.schema = schemas.value; runForm.analysis = analyses.value; runForm.policy = policy.value; runForm.actor = actor.value; }
+    var fit = h('div', { class: 'small', id: 'run-fit', role: 'status' });
+    var fitSeq = 0;
     function refresh() {
       remember();
       policyNote.textContent = POLICY_TEXT[policy.value] || '';
       go.disabled = !(files.value && schemas.value && actor.value.trim());
       draft.disabled = !files.value;
     }
+    // Before anything runs: does the chosen schema describe this file? If not, say so and offer the schema that does.
+    function checkFit() {
+      var mine = ++fitSeq;
+      clear(fit);
+      if (!files.value) return;
+      api('/api/run/check', { method: 'POST', body: { file: files.value, schema: schemas.value } }).then(function (r) {
+        if (mine !== fitSeq || !r.known) return;
+        var best = r.best, ch = r.chosen;
+        if (!schemas.value && best && best.missing_required_count === 0) {
+          schemas.value = best.id; remember(); refresh(); checkFit(); return;                  // nothing chosen yet: pick the schema that fits
+        }
+        if (ch && ch.missing_required_count === 0) {
+          fit.className = 'small ok-note';
+          fit.textContent = '✓ This schema fits the file: ' + ch.matched + ' of its ' + ch.schema_columns + ' columns are in the file' + (ch.extra_in_file ? ' (' + ch.extra_in_file + ' file columns are not in the schema)' : '') + '.';
+        } else if (ch) {
+          fit.className = 'small warn-note';
+          fit.appendChild(h('span', { text: '⚠ This schema does not fit this file: ' + ch.missing_required_count + ' required columns are missing (for example ' + ch.missing_required.slice(0, 4).join(', ') + '), and only ' + ch.matched + ' of ' + ch.schema_columns + ' schema columns are in the file. The run would be stopped. ' }));
+          if (best && best.id !== ch.id && best.missing_required_count === 0) {
+            fit.appendChild(h('button', { type: 'button', class: 'secondary small', text: 'Use ' + best.name + ' instead (fits)', onclick: function () { schemas.value = best.id; remember(); refresh(); checkFit(); } }));
+          } else if (!best || best.missing_required_count > 0) {
+            fit.appendChild(h('span', { text: 'None of the listed schemas fits; use “Draft a schema from the chosen file”.' }));
+          }
+        }
+      }).catch(function () {});
+    }
+    [files, schemas].forEach(function (c) { c.addEventListener('change', checkFit); });
     [files, schemas, analyses, policy].forEach(function (c) { c.addEventListener('change', refresh); });
     actor.addEventListener('input', refresh);
 
@@ -795,7 +826,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         field('Schema (what each column should look like)', 'run-schema', schemas, 'No schema yet? Choose the file, then use the draft button below.'),
         field('Metrics (what the report should answer)', 'run-analysis', analyses),
         field('Policy', 'run-policy', policy), field('Your name (goes into the audit log)', 'run-actor', actor)),
-      policyNote, h('div', { class: 'btns' }, go, draft), msg));
+      fit, policyNote, h('div', { class: 'btns' }, go, draft), msg));
     app.appendChild(resultBox);
 
     var recent = h('div', { class: 'card' }, h('h3', { text: 'Earlier runs' }));
@@ -808,6 +839,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     });
     app.appendChild(recent);
     refresh();
+    checkFit();
 
     draft.addEventListener('click', function () {
       msg.textContent = 'Reading the file…'; draft.disabled = true;

@@ -216,3 +216,41 @@ def test_run_a_file_in_the_browser(app):
         expect(page.get_by_role("heading", name="Mapping proposals")).to_be_visible()
         browser.close()
         assert errors == []
+
+
+# ---------------------------------------------------------------- does the schema fit the file? (before running)
+def test_check_says_which_schema_fits_the_file_without_running_anything(app, tmp_path):
+    shutil.copy(EX / "schema_buyers.json", app.data)                        # a second, unrelated schema
+    c = Client(app).login()
+    _, o = c.json("GET", "/api/run/options")
+    sales = next(f for f in o["files"] if f["name"] == "sales.csv")
+    ids = {s["name"]: s["id"] for s in o["schemas"]}
+    status, r = c.json("POST", "/api/run/check", {"file": sales["id"], "schema": ids["schema_buyers.json"]})
+    assert status == 200 and r["known"] and r["chosen"]["missing_required_count"] > 0         # wrong schema: said so
+    assert r["best"]["name"] == "schema_sales.json" and r["best"]["missing_required_count"] == 0
+    status, r = c.json("POST", "/api/run/check", {"file": sales["id"], "schema": ids["schema_sales.json"]})
+    assert r["chosen"]["missing_required_count"] == 0 and r["chosen"]["matched"] == r["chosen"]["schema_columns"]
+    assert c.json("GET", "/api/run/status")[1]["state"] == "idle"                               # nothing was started
+    assert c.json("POST", "/api/run/check", {"file": "../x"})[0] == 400
+
+
+def test_the_page_warns_about_a_wrong_schema_and_offers_the_right_one(app):
+    from playwright.sync_api import expect, sync_playwright
+    shutil.copy(EX / "schema_buyers.json", app.data)
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+        except Exception as exc:
+            pytest.skip(f"Chromium not available: {exc}")
+        page = browser.new_page()
+        page.goto(f"http://127.0.0.1:{app.port}/?t={TOKEN}&go=run")
+        page.wait_for_selector("#run-file")
+        page.select_option("#run-file", index=1)
+        expect(page.locator("#run-schema")).not_to_have_value("")                 # nothing chosen yet: the fitting schema is picked
+        expect(page.locator("#run-fit")).to_contain_text("fits the file")
+        wrong = page.locator("#run-schema option", has_text="schema_buyers.json").get_attribute("value")
+        page.select_option("#run-schema", wrong)
+        expect(page.locator("#run-fit")).to_contain_text("does not fit this file")
+        page.get_by_role("button", name="Use schema_sales.json instead (fits)").click()
+        expect(page.locator("#run-fit")).to_contain_text("fits the file")
+        browser.close()
