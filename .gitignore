@@ -7,3 +7,8 @@ work/
 desktop.ini
 *.egg-info/
 *.lock
+
+# generated or local data files (never commit data; the 120 MB test file and any real file live outside git)
+/buyers*.csv
+/data/
+/*.local.csv
