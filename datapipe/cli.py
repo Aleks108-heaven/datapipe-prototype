@@ -204,13 +204,24 @@ def _cmd_approve(args):
     return 0
 
 
+def _data_dirs(args, is_app):
+    """Folders the app may read data files from. The app also has an 'inbox' inside the work folder: drop a file there
+    (from Downloads, a USB stick, a mail attachment...) and it appears in the list after a refresh."""
+    dirs = [Path(d) for d in args.data_dir] or [Path.cwd()]
+    if is_app:
+        inbox = Path(args.workdir) / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        dirs.append(inbox)
+    return dirs
+
+
 def _cmd_review(args):
     from .webui import make_server
     is_app = args.cmd == "app"
     examples = Path.cwd() / "examples"
     try:
         server = make_server(args.workdir, port=args.port, extra_dirs=args.dir, reviewer=args.reviewer,
-                             verbose=args.verbose, data_dirs=args.data_dir or [Path.cwd()],
+                             verbose=args.verbose, data_dirs=_data_dirs(args, is_app),
                              config_dirs=[examples] if is_app and examples.is_dir() else [])
     except OSError as exc:
         raise DataPipeError(f"cannot listen on 127.0.0.1:{args.port} ({exc.strerror or exc}). Another review may already be "

@@ -97,7 +97,8 @@ class RunService:
         return {"files": self._public(data), "schemas": self._public(schemas), "analyses": self._public(analyses),
                 "policies": [{"name": p.name, "max_file_mb": p.max_file_bytes // 1024 ** 2, "mask_pii": p.mask_pii,
                               "needs_signoff": p.require_signoff} for p in POLICIES.values()],
-                "default_actor": default_actor(), "recent": self.recent(), "workdir": str(self.workdir)}
+                "default_actor": default_actor(), "recent": self.recent(), "workdir": str(self.workdir),
+                "folders": [str(d) for d in self.data_dirs if d.is_dir()]}
 
     @staticmethod
     def _pick(items, ident, what):

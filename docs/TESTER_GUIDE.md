@@ -24,6 +24,8 @@ python -m datapipe app --data-dir .
 ```
 Your browser opens. Choose **Data file** `buyers.csv`, **Schema** `schema_buyers.json`, **Metrics** `analysis_buyers.json`, policy **business**, enter your name, press **Run**. When it finishes you see the counts, the metrics tables and download buttons.
 
+**Using a file from somewhere else** (Downloads, a USB stick): copy it into `work/inbox/` (created when the app starts) and press *Refresh the lists*, or restart with `python -m datapipe app --data-dir "C:\path\to\folder"`. The page lists the folders it reads under *Add your own files*.
+
 Prefer the terminal? `python -m datapipe run buyers.csv --policy business --schema examples/schema_buyers.json --analysis examples/analysis_buyers.json --actor yourname`
 
 ## 4. What to look at

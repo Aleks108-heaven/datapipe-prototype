@@ -254,3 +254,21 @@ def test_the_page_warns_about_a_wrong_schema_and_offers_the_right_one(app):
         page.get_by_role("button", name="Use schema_sales.json instead (fits)").click()
         expect(page.locator("#run-fit")).to_contain_text("fits the file")
         browser.close()
+
+
+# ---------------------------------------------------------------- adding your own files
+def test_a_file_dropped_into_a_listed_folder_shows_up_after_a_refresh_and_folders_are_shown(app):
+    c = Client(app).login()
+    o = c.json("GET", "/api/run/options")[1]
+    assert o["folders"] == [str(app.data.resolve())]
+    (app.data / "new_export.csv").write_text("order_id,region\nA1,N\n")
+    assert "new_export.csv" in [f["name"] for f in c.json("GET", "/api/run/options")[1]["files"]]
+
+
+def test_the_app_command_also_watches_an_inbox_folder_in_the_work_folder(tmp_path):
+    from argparse import Namespace
+    from datapipe.cli import _data_dirs
+    dirs = _data_dirs(Namespace(data_dir=[str(tmp_path / "mine")], workdir=str(tmp_path / "work")), True)
+    assert dirs == [tmp_path / "mine", tmp_path / "work" / "inbox"] and (tmp_path / "work" / "inbox").is_dir()
+    assert _data_dirs(Namespace(data_dir=[], workdir=str(tmp_path / "w2")), False)[0].is_dir()      # review: current folder, no inbox
+    assert not (tmp_path / "w2" / "inbox").exists()

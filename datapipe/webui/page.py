@@ -158,6 +158,8 @@ table.metric caption{text-align:left;font-weight:650;padding-bottom:var(--s2);te
 table.metric th,table.metric td{text-align:left;padding:var(--s1) var(--s3);border-bottom:1px solid var(--line);white-space:nowrap}
 table.metric th{color:var(--muted);font-weight:600}
 .ok-note{color:var(--ok)}
+.mono{font-family:var(--mono);overflow-wrap:anywhere}
+.folds{margin:var(--s3) 0}
 .warn-note{color:var(--warn)}
 .warn-note button{margin-left:var(--s2)}
 table.metric .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -822,12 +824,19 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     app.appendChild(h('div', { class: 'card' },
       h('p', { class: 'small muted', text: 'Everything stays on this computer. Pick a data file and the schema that describes it; the cleaned data, the bad rows and the metrics are written to a new run folder.' }),
       h('div', { class: 'runfields' },
-        field('Data file', 'run-file', files, o.files.length ? null : 'Put the file in the folder you started this app from, or start it with --data-dir <folder>.'),
+        field('Data file', 'run-file', files, o.files.length ? 'No file here? See “Add your own files” below.' : 'No data files found. See “Add your own files” below.'),
         field('Schema (what each column should look like)', 'run-schema', schemas, 'No schema yet? Choose the file, then use the draft button below.'),
         field('Metrics (what the report should answer)', 'run-analysis', analyses),
         field('Policy', 'run-policy', policy), field('Your name (goes into the audit log)', 'run-actor', actor)),
       fit, policyNote, h('div', { class: 'btns' }, go, draft), msg));
     app.appendChild(resultBox);
+
+    var addBox = h('details', { id: 'add-files', class: 'folds' }, h('summary', { text: 'Add your own files' }),
+      h('p', { class: 'small', text: 'The app only reads files from these folders (it never takes a typed path, so it cannot be pointed at anything else):' }),
+      h('ul', { class: 'small' }, (o.folders || []).map(function (f) { return h('li', { class: 'mono', text: f }); })),
+      h('p', { class: 'small', text: 'To use a file from somewhere else, copy it into one of these folders (the inbox folder inside the work folder is meant for that), or stop the app and start it again with another folder: python -m datapipe app --data-dir <folder> (repeat the option for several folders). Schema and metrics files are found in the same folders and in examples/.' }),
+      h('button', { type: 'button', class: 'secondary small', id: 'run-refresh', text: 'Refresh the lists', onclick: function () { remember(); showRun(runId); } }));
+    app.appendChild(addBox);
 
     var recent = h('div', { class: 'card' }, h('h3', { text: 'Earlier runs' }));
     if (!o.recent.length) recent.appendChild(h('p', { class: 'small muted', text: 'None yet.' }));
