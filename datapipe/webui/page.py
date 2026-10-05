@@ -13,6 +13,7 @@ _TEMPLATE = r"""<!doctype html>
 <meta name="csrf" content="{{CSRF}}">
 <meta name="fixed-reviewer" content="{{FIXED}}">
 <title>Mapping Review</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiByeD0iMyIgZmlsbD0iIzI3NTdkNiIvPjxwYXRoIGQ9Ik00IDguNWwzIDMgNS02IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiLz48L3N2Zz4=">
 <style nonce="{{NONCE}}">
 :root{
   --bg:#f6f6f3; --surface:#ffffff; --text:#1b1b19; --muted:#63635d; --line:#dcdcd4;
@@ -20,7 +21,7 @@ _TEMPLATE = r"""<!doctype html>
   --accent:#2757d6; --accent-ink:#ffffff;
   --ok:#17692f; --ok-bg:#e4f3e8; --warn:#8a5200; --warn-bg:#fff1d0; --bad:#a8231b; --bad-bg:#fce6e3;
   --radius:12px; --r-sm:8px; --r-md:10px; --r-pill:999px;
-  --tap:44px; --tap-sm:40px; --s2:8px; --s3:12px; --fs-xs:.8rem; --fs-sm:.9rem; --fs-md:.9rem; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --tap:44px; --tap-sm:40px; --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:48px; --fs-xs:.8rem; --fs-sm:.9rem; --fs-md:.9rem; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){
   :root{
@@ -33,63 +34,63 @@ _TEMPLATE = r"""<!doctype html>
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:1rem/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}  /* rem, so the reader's text-size setting scales everything together */
-header.top{display:flex;align-items:center;gap:var(--s3);padding:14px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+header.top{display:flex;align-items:center;gap:var(--s3);padding:var(--s4) var(--s4);border-bottom:1px solid var(--line);background:var(--surface)}
 header.top h1{font-size:1.05rem;margin:0;font-weight:650}
 header.top .sub{color:var(--muted);font-size:var(--fs-sm)}
-main{max-width:920px;margin:0 auto;padding:16px 16px 48px;overflow-wrap:anywhere}      /* file names and column names are one long token: they must wrap, never widen the page (WCAG 1.4.10) */
+main{max-width:920px;margin:0 auto;padding:var(--s4) var(--s4) var(--s6);overflow-wrap:anywhere}      /* file names and column names are one long token: they must wrap, never widen the page (WCAG 1.4.10) */
 a,button{font:inherit}
 button{overflow-wrap:normal}
 .titlerow{align-items:center;flex-wrap:nowrap}
 .titlerow>.row{min-width:0;flex:1}
 .titlerow h2{margin:0}
 /* The three folded sections share one line; an open one takes the full width. */
-.folds{display:flex;flex-wrap:wrap;gap:0 20px;margin:0 0 8px}
+.folds{display:flex;flex-wrap:wrap;gap:0 var(--s5);margin:0 0 var(--s2)}
 .folds details{margin:0;flex:0 0 auto}
 .folds details[open]{flex-basis:100%}
-.folds details>summary{padding:8px 0}
-button.back{background:none;border:0;color:var(--accent);display:inline-block;padding:6px 0;min-height:var(--tap);cursor:pointer;text-align:left}
+.folds details>summary{padding:var(--s2) 0}
+button.back{background:none;border:0;color:var(--accent);display:inline-block;padding:var(--s2) 0;min-height:var(--tap);cursor:pointer;text-align:left}
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 h2[tabindex="-1"]:focus{outline:none}
 button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-h2{font-size:1.15rem;margin:28px 0 10px;overflow-wrap:anywhere}
+h2{font-size:1.15rem;margin:var(--s5) 0 var(--s2);overflow-wrap:anywhere}
 h3{font-size:1rem;margin:0;overflow-wrap:anywhere;min-width:0}
-h2.tight{margin-top:12px}
+h2.tight{margin-top:var(--s3)}
 ::placeholder{color:var(--muted);opacity:1}                                   /* 4.5:1 on the field background in both themes */
 #result:focus{outline:none}
 .muted{color:var(--muted)}
 .small{font-size:var(--fs-sm)}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:0 0 12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--s4) var(--s4);margin:0 0 var(--s3)}
 .card.click{cursor:pointer}
 .card.click:hover{border-color:var(--accent)}
 .row{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
 .spread{justify-content:space-between}
-.badge{display:inline-block;padding:2px 10px;border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;border:1px solid transparent}
+.badge{display:inline-block;padding:2px var(--s2);border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;border:1px solid transparent}
 .b-ok{background:var(--ok-bg);color:var(--ok)}
 .b-warn{background:var(--warn-bg);color:var(--warn)}
 .b-bad{background:var(--bad-bg);color:var(--bad)}
 .b-neutral{background:transparent;color:var(--muted);border-color:var(--line)}
-.chip{display:inline-block;padding:1px 9px;border-radius:var(--r-sm);border:1px solid var(--line);font-size:var(--fs-xs);color:var(--muted)}
-.name{font-family:var(--mono);font-size:var(--fs-md);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:2px 8px;overflow-wrap:anywhere;white-space:pre-wrap}
+.chip{display:inline-block;padding:1px var(--s2);border-radius:var(--r-sm);border:1px solid var(--line);font-size:var(--fs-xs);color:var(--muted)}
+.name{font-family:var(--mono);font-size:var(--fs-md);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:2px var(--s2);overflow-wrap:anywhere;white-space:pre-wrap}
 .arrow{color:var(--muted)}
-.banner{border-radius:var(--radius);padding:12px 14px;margin:0 0 12px;border:1px solid transparent}
+.banner{border-radius:var(--radius);padding:var(--s3) var(--s4);margin:0 0 var(--s3);border:1px solid transparent}
 .banner.bad{background:var(--bad-bg);color:var(--bad);border-color:var(--bad)}
 .banner.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
 .banner.warn{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
-dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0}
+dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:var(--s1) var(--s4);margin:0}
 dl.meta dt{color:var(--muted)}
 dl.meta dd{margin:0;overflow-wrap:anywhere}
-@media (max-width:520px){dl.meta{grid-template-columns:1fr}dl.meta dt{margin-top:8px}.titlerow{flex-wrap:wrap}}
-details{margin:10px 0 0}
-summary{cursor:pointer;color:var(--accent);padding:10px 0}
-pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px;overflow:auto;max-height:320px;font:var(--fs-xs)/1.4 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+@media (max-width:520px){dl.meta{grid-template-columns:1fr}dl.meta dt{margin-top:var(--s2)}.titlerow{flex-wrap:wrap}}
+details{margin:var(--s2) 0 0}
+summary{cursor:pointer;color:var(--accent);padding:var(--s2) 0}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:var(--s2);overflow:auto;max-height:320px;font:var(--fs-xs)/1.4 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:80px;flex:1}
 .bar>span{display:block;height:100%;background:var(--accent)}
-.evidence{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
-ul.reasons{margin:8px 0 0;padding-left:20px;color:var(--warn)}
+.evidence{display:flex;flex-wrap:wrap;gap:var(--s2);margin:var(--s2) 0 0}
+ul.reasons{margin:var(--s2) 0 0;padding-left:var(--s5);color:var(--warn)}
 ul.reasons.rej{color:var(--bad)}
-.quote{margin:8px 0 0;padding:6px 10px;border-left:3px solid var(--line);color:var(--muted);font-size:var(--fs-md);overflow-wrap:anywhere}
-.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r-md);overflow:hidden;margin-top:10px}
-.seg button{border:0;background:var(--surface);color:var(--text);padding:8px 18px;min-height:var(--tap);cursor:pointer}
+.quote{margin:var(--s2) 0 0;padding:var(--s2) var(--s2);border-left:3px solid var(--line);color:var(--muted);font-size:var(--fs-md);overflow-wrap:anywhere}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r-md);overflow:hidden;margin-top:var(--s2)}
+.seg button{border:0;background:var(--surface);color:var(--text);padding:var(--s2) var(--s4);min-height:var(--tap);cursor:pointer}
 .seg button+button{border-left:1px solid var(--line-strong)}
 .seg button[aria-checked=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .seg button:disabled{cursor:not-allowed;opacity:.55}
@@ -98,16 +99,16 @@ ul.reasons.rej{color:var(--bad)}
 .seg button[aria-checked=true]:focus-visible{outline-color:var(--accent-ink)}
 .seg button[aria-checked=true]::before{content:"\2713\00a0"}
 .seg button[aria-checked=true]::before{content:"\2713\00a0" / ""}              /* a tick as well as the colour (WCAG 1.4.1); the screen reader already has aria-checked */
-.undecided{margin:6px 0 0;color:var(--warn);font-size:var(--fs-sm)}
+.undecided{margin:var(--s2) 0 0;color:var(--warn);font-size:var(--fs-sm)}
 .card[data-open="1"]{border-color:var(--warn)}
-.locked{margin-top:10px;color:var(--muted);font-size:var(--fs-md)}
-.actionbar{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:16px 0 0}
-.actionbar .inner{display:grid;gap:10px}
+.locked{margin-top:var(--s2);color:var(--muted);font-size:var(--fs-md)}
+.actionbar{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--s4) var(--s4);margin:var(--s4) 0 0}
+.actionbar .inner{display:grid;gap:var(--s2)}
 /* Wide screens: one fixed row (name | note | buttons) with the one-line "why" under it, so the bar stays about 100px and never hides the first card. */
 @media (min-width:900px){
   main{padding-bottom:140px}
-  .actionbar{position:fixed;left:0;right:0;bottom:0;border-radius:0;border-width:1px 0 0;margin:0;padding:8px 16px;z-index:5}
-  .actionbar .inner{max-width:920px;margin:0 auto;gap:4px var(--s3);grid-template-columns:1fr auto;align-items:end}
+  .actionbar{position:fixed;left:0;right:0;bottom:0;border-radius:0;border-width:1px 0 0;margin:0;padding:var(--s2) var(--s4);z-index:5}
+  .actionbar .inner{max-width:920px;margin:0 auto;gap:var(--s1) var(--s3);grid-template-columns:1fr auto;align-items:end}
   .actionbar .inner>.btns{flex-wrap:nowrap}
   .actionbar .inner>.msgs{grid-column:1 / -1}
   .actionbar textarea{min-height:40px;height:40px}
@@ -115,37 +116,37 @@ ul.reasons.rej{color:var(--bad)}
 .fields{display:grid;grid-template-columns:minmax(120px,220px) 1fr;gap:var(--s2)}
 @media (max-width:620px){.fields{grid-template-columns:1fr}}
 label.f{display:block;font-size:var(--fs-xs);color:var(--muted);margin-bottom:2px}
-input,textarea{width:100%;padding:9px 10px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--bg);color:var(--text);font:inherit}
+input,textarea{width:100%;padding:var(--s2) var(--s2);border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--bg);color:var(--text);font:inherit}
 textarea{min-height:var(--tap);resize:vertical}
 .btns{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
-button.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:var(--r-md);padding:10px 18px;min-height:var(--tap);font-weight:650;cursor:pointer}
-button.secondary{background:transparent;color:var(--text);border:1px solid var(--line-strong);border-radius:var(--r-md);padding:10px 16px;min-height:var(--tap);cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:var(--r-md);padding:var(--s2) var(--s4);min-height:var(--tap);font-weight:650;cursor:pointer}
+button.secondary{background:transparent;color:var(--text);border:1px solid var(--line-strong);border-radius:var(--r-md);padding:var(--s2) var(--s4);min-height:var(--tap);cursor:pointer}
 button.danger{color:var(--bad);border-color:var(--bad)}
 button:disabled{opacity:.5;cursor:not-allowed}
 .why{color:var(--muted);font-size:var(--fs-sm);flex:1;min-width:180px}
 .msgs{display:grid;gap:2px}
 .msgs .why{min-width:0}
 .err{color:var(--bad);font-size:var(--fs-md)}
-.cmd{font:var(--fs-sm)/1.4 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 10px;overflow-wrap:anywhere;white-space:pre-wrap}
-.empty{text-align:center;padding:36px 12px;color:var(--muted)}
-select{width:100%;padding:9px 10px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--bg);color:var(--text);font:inherit;min-height:42px}
+.cmd{font:var(--fs-sm)/1.4 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:var(--s2) var(--s2);overflow-wrap:anywhere;white-space:pre-wrap}
+.empty{text-align:center;padding:var(--s5) var(--s3);color:var(--muted)}
+select{width:100%;padding:var(--s2) var(--s2);border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--bg);color:var(--text);font:inherit;min-height:42px}
 select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-.change{display:grid;grid-template-columns:1fr minmax(170px,290px);gap:6px 14px;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.change{display:grid;grid-template-columns:1fr minmax(170px,290px);gap:var(--s2) var(--s4);align-items:end;margin-top:var(--s3);padding-top:var(--s3);border-top:1px solid var(--line)}
 .change .cur{font-size:var(--fs-md);overflow-wrap:anywhere}
 .change .full{grid-column:1 / -1}
 @media (max-width:760px){.change{grid-template-columns:1fr}}.badge.b-manual{background:var(--accent);color:var(--accent-ink)}
-.superseded{margin-top:10px;color:var(--muted);font-size:var(--fs-md)}
-button.small{padding:6px 12px;min-height:var(--tap-sm);font-size:var(--fs-sm)}
+.superseded{margin-top:var(--s2);color:var(--muted);font-size:var(--fs-md)}
+button.small{padding:var(--s2) var(--s3);min-height:var(--tap-sm);font-size:var(--fs-sm)}
 /* The reviewer's live to-do count stays on screen while scrolling; on phones the action bar is at the end of the page, so it also carries a jump. */
-.statusline{position:sticky;top:0;z-index:4;display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;justify-content:space-between;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 0;margin:0 0 12px}
+.statusline{position:sticky;top:0;z-index:4;display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;justify-content:space-between;background:var(--bg);border-bottom:1px solid var(--line);padding:var(--s2) 0;margin:0 0 var(--s3)}
 .statusline p{margin:0;font-weight:600;flex:1;min-width:200px}
-.statusline label{display:flex;gap:6px;align-items:center;font-size:var(--fs-sm);min-height:var(--tap-sm)}
+.statusline label{display:flex;gap:var(--s2);align-items:center;font-size:var(--fs-sm);min-height:var(--tap-sm)}
 .statusline input{width:auto}
 .jump{display:none}
 @media (max-width:899px){.jump{display:inline-block}}
 html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus must not end up under the sticky strip or the action bar */
 .statusline+.card{margin-top:0}
-.metaline{margin:0 0 8px}
+.metaline{margin:0 0 var(--s2)}
 /* Short screens (a phone on its side, 400% zoom): a sticky strip would eat half the view, so it scrolls away instead. */
 @media (max-height:520px){.statusline{position:static}html{scroll-padding-top:0}}
 /* Forced-colours (Windows High Contrast): keep control edges and show the chosen option by shape, not only by colour. */

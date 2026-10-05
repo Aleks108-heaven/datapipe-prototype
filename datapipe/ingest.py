@@ -124,6 +124,7 @@ def parse_csv(text, delimiter=None, max_memory_bytes=None) -> RawTable:
         raise IngestError("no header row found")
     except csv.Error as exc:
         raise IngestError(f"malformed CSV header: {exc}")
+    trimmed = sum(1 for h in header if h != h.strip())
     header = [h.strip() for h in header]
     if any(h == "" for h in header):
         raise IngestError("header contains an empty column name")
@@ -141,10 +142,16 @@ def parse_csv(text, delimiter=None, max_memory_bytes=None) -> RawTable:
             if len(record) != len(header):
                 issues.append((n, f"expected {len(header)} fields, found {len(record)}"))
                 continue
-            rows.append({h: v.strip() for h, v in zip(header, record)})
+            stripped = [v.strip() for v in record]
+            if stripped != record:
+                trimmed += 1
+            rows.append(dict(zip(header, stripped)))
             numbers.append(n)
     except csv.Error as exc:
         raise IngestError(f"malformed CSV near record {n + 1}: {exc}")
+    if trimmed:
+        warnings.append(f"{trimmed} record(s) or header(s) had spaces at the start or end of a value removed before checking "
+                        "(for example ' 5 ' is read as '5')")
     if not rows and not issues:
         warnings.append("file has a header but no data rows")
     return RawTable("csv", header, rows, numbers, issues, warnings)

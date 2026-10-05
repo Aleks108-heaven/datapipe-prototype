@@ -177,3 +177,12 @@ def test_usage_errors_exit_64_and_policy_blocks_still_exit_2(tmp_path, capsys):
     dirty = tmp_path / "d.csv"
     dirty.write_text("order_id,x\nbad,1\n", encoding="utf-8")
     assert main(["--workdir", str(tmp_path / "w"), "run", str(dirty), "--policy", "regulated", "--schema", str(SCHEMA)]) == 2
+
+
+# ------------------------------------------------------------------ trimmed spaces are reported, not silent
+def test_csv_values_with_edge_spaces_are_trimmed_and_the_file_says_so():
+    from datapipe.ingest import parse_csv
+    tbl = parse_csv("a, b\n 1 ,2\n3,4\n")
+    assert tbl.columns == ["a", "b"] and tbl.rows[0] == {"a": "1", "b": "2"}
+    assert any("2 record(s) or header(s)" in w and "' 5 ' is read as '5'" in w for w in tbl.warnings)
+    assert parse_csv("a,b\n1,2\n").warnings == []

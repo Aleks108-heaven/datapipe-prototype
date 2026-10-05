@@ -242,3 +242,12 @@ def test_a_second_review_server_cannot_take_a_port_that_is_already_served(srv, w
     from datapipe.cli import main
     assert main(["--workdir", str(wd), "review", "--port", str(srv.port)]) != 0
     assert "cannot listen on 127.0.0.1" in capsys.readouterr().err
+
+
+def test_page_csp_allows_only_the_inline_icon_and_nothing_else_for_images(srv):
+    c = Client(srv)
+    c.login()
+    status, headers, body = c.req("GET", "/")
+    csp = headers["content-security-policy"]
+    assert status == 200 and "img-src data:" in csp and "default-src 'none'" in csp and "unsafe" not in csp
+    assert b'rel="icon" href="data:image/svg+xml;base64,' in body

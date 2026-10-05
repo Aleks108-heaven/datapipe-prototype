@@ -109,7 +109,7 @@ class Handler(BaseHTTPRequestHandler):
                 fixed = self.server.service.fixed_reviewer or ""
                 page = render_page(nonce, self.server.csrf, html.escape(fixed, quote=True))
                 csp = (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
-                       "connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+                       "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
                 return self._send(200, page.encode(), "text/html; charset=utf-8", csp=csp)
             if not self._authed():
                 return self._error(401, "not authenticated")
