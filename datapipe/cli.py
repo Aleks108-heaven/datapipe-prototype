@@ -13,8 +13,17 @@ from .policy import POLICIES, get_policy
 from .schema import infer_schema, load_schema
 
 
+EXIT_USAGE = 64      # wrong command line; 2 means "blocked by policy" and must stay unambiguous for scripts
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_USAGE, f"{self.prog}: error: {message}\n")
+
+
 def build_parser():
-    p = argparse.ArgumentParser(prog="datapipe", description="Policy-driven, auditable data pipeline (prototype)")
+    p = _Parser(prog="datapipe", description="Policy-driven, auditable data pipeline (prototype)")
     p.add_argument("--workdir", default="./work", help="where runs/ and audit.jsonl live (default ./work)")
     sub = p.add_subparsers(dest="cmd", required=True)
 

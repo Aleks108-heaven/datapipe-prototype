@@ -169,16 +169,22 @@ def _strict_loads(text):
         raise IngestError("JSON nesting too deep")
 
 
-def _flatten(obj, prefix=""):
-    out = {}
+class _KeyCollision(Exception):
+    pass
+
+
+def _flatten(obj, prefix="", out=None):
+    """Nested objects become dotted column names. Two different fields that end up with the same name (for example
+    {"a": {"b": 1}, "a.b": 2}) would silently overwrite each other, so that record is refused instead."""
+    out = {} if out is None else out
     for key, value in obj.items():
         name = f"{prefix}{key}"
         if isinstance(value, dict):
-            out.update(_flatten(value, name + "."))
-        elif isinstance(value, list):
-            out[name] = json.dumps(value, default=str, sort_keys=True)
-        else:
-            out[name] = value
+            _flatten(value, name + ".", out)
+            continue
+        if name in out:
+            raise _KeyCollision(name)
+        out[name] = json.dumps(value, default=str, sort_keys=True) if isinstance(value, list) else value
     return out
 
 
@@ -190,7 +196,11 @@ def _records_to_table(numbered_records, fmt, warnings, issues=None):
         if not isinstance(rec, dict):
             issues.append((i, "record is not a JSON object"))
             continue
-        flat = _flatten(rec)
+        try:
+            flat = _flatten(rec)
+        except _KeyCollision as exc:
+            issues.append((i, f"two fields of this record flatten to the same column name {str(exc)[:80]!r}; the record was not loaded"))
+            continue
         for k in flat:
             if k not in seen:
                 seen.add(k)

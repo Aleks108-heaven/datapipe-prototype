@@ -60,6 +60,26 @@ def _digest(record):
     return hashlib.sha256(_canon(body).encode()).hexdigest()
 
 
+_DAMAGED = ("the audit log is damaged ({where}). Nothing was written. Keep a copy of the file, run "
+            "'datapipe verify-audit' to see where, then restore it from a backup or move it aside to start a new log.")
+
+
+def _parse(text):
+    """Records from the log text. Raises AuditError (never a raw traceback) if a line is not a usable record."""
+    out = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            raise AuditError(_DAMAGED.format(where=f"line {lineno} is not valid JSON - an interrupted write or an edit"))
+        if not isinstance(rec, dict) or not isinstance(rec.get("hash"), str) or not isinstance(rec.get("seq"), int):
+            raise AuditError(_DAMAGED.format(where=f"line {lineno} is not a log record"))
+        out.append(rec)
+    return out
+
+
 def default_actor():
     try:
         return getpass.getuser()
@@ -74,23 +94,21 @@ class AuditLog:
 
     def append(self, event, run_id=None, data=None, actor=None, guard=None):
         """Append one record. `guard(records)` runs while the file lock is held (raise to refuse), which makes
-        check-then-append decisions atomic across threads and processes."""
+        check-then-append decisions atomic across threads and processes. A damaged log is never appended to: the chain
+        would hide the damage (and a torn last line would be glued to the new record)."""
         with open(self.path, "a+", encoding="utf-8") as fh:
             with _exclusive(fh, self.path):
                 fh.seek(0)
-                last = None
-                lines = []
-                for line in fh:
-                    if line.strip():
-                        last = line
-                        if guard is not None:
-                            lines.append(line)
+                try:
+                    text = fh.read()
+                except UnicodeDecodeError:
+                    raise AuditError(_DAMAGED.format(where="the file is not valid UTF-8 text"))
+                records = _parse(text)
                 if guard is not None:
-                    guard([json.loads(x) for x in lines])
+                    guard(records)
                 prev, seq = GENESIS, 0
-                if last:
-                    prev_rec = json.loads(last)
-                    prev, seq = prev_rec["hash"], prev_rec["seq"] + 1
+                if records:
+                    prev, seq = records[-1]["hash"], records[-1]["seq"] + 1
                 record = {
                     "seq": seq,
                     "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -101,7 +119,7 @@ class AuditLog:
                     "prev": prev,
                 }
                 record["hash"] = _digest(record)
-                fh.write(_canon(record) + "\n")
+                fh.write(("\n" if text and not text.endswith("\n") else "") + _canon(record) + "\n")
                 fh.flush()
                 os.fsync(fh.fileno())
                 return record
@@ -109,21 +127,28 @@ class AuditLog:
     def records(self):
         if not self.path.exists():
             return []
-        out = []
-        with open(self.path, encoding="utf-8") as fh:
-            for line in fh:
-                if line.strip():
-                    out.append(json.loads(line))
-        return out
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                return _parse(fh.read())
+        except UnicodeDecodeError:
+            raise AuditError(_DAMAGED.format(where="the file is not valid UTF-8 text"))
 
     def verify(self):
-        """Return (ok, record_count, message)."""
+        """Return (ok, record_count, message). record_count = records that were intact before the first problem."""
         prev, expected_seq, n = GENESIS, 0, 0
         try:
-            records = self.records()
-        except ValueError:
-            return False, 0, "log contains a line that is not valid JSON"
-        for rec in records:
+            text = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+        except UnicodeDecodeError:
+            return False, 0, "the file is not valid UTF-8 text"
+        for lineno, line in enumerate(text.split("\n"), 1):
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                return False, n, f"line {lineno} is not valid JSON (an interrupted write, or the file was edited)"
+            if not isinstance(rec, dict):
+                return False, n, f"line {lineno} is not a log record (it is {type(rec).__name__}, not an object)"
             n += 1
             if rec.get("seq") != expected_seq:
                 return False, n, f"sequence gap or reorder at record {n}"

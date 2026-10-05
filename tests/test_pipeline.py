@@ -178,7 +178,9 @@ def test_signoff_flow_four_eyes_and_single_use(write, run, wd):
     with pytest.raises(DataPipeError):
         signoff(wd, r.run_id, "carol")                    # already signed
     recs = AuditLog(wd / "audit.jsonl").records()
-    assert recs[-1]["event"] == "signoff" and recs[-1]["actor"] == "bob"
+    signed = [x for x in recs if x["event"] == "signoff"]
+    assert len(signed) == 1 and signed[0]["actor"] == "bob"
+    assert [x["actor"] for x in recs if x["event"] == "signoff_refused"] == ["alice", "carol"]      # refusals are on record too
 
 
 def test_signoff_refuses_tampered_results_and_wrong_status_and_bad_ids(write, run, wd):

@@ -404,26 +404,47 @@ def record_decision(workdir, event, proposal, reviewer, *, schema=None, schema_f
     return audit.append(event, None, data, actor=reviewer, guard=only_if_pending)
 
 
+def log_refusal(workdir, event, proposal, reviewer, reason):
+    """Record that a decision was refused (four-eyes, tampered proposal, already decided, ...). Identifiers only: the
+    proposal hash, who tried, and the refusal message (which never holds file values). Failing to write this record
+    must never hide the real error, so any problem here is swallowed."""
+    try:
+        AuditLog(f"{workdir}/audit.jsonl").append(
+            event, None, {"proposal_sha256": str((proposal or {}).get("proposal_sha256", ""))[:64], "reason": str(reason)[:300]},
+            actor=clean_name(reviewer) or None)
+    except Exception:
+        pass
+
+
 def approve_mapping(proposal, *, reviewer, accept_review=False, include=None, exclude=None, note="",
                     workdir=None, schema_file=None, manual=None, verify_manual=None):
     reviewer = clean_name(reviewer)
-    schema = build_approved_schema(proposal, reviewer=reviewer, accept_review=accept_review,
-                                   include=include, exclude=exclude, note=note,
-                                   manual=manual, verify_manual=verify_manual)
-    if workdir is not None:
-        record_decision(workdir, "mapping_approved", proposal, reviewer, schema=schema,
-                        schema_file=schema_file, note=note)
+    try:
+        schema = build_approved_schema(proposal, reviewer=reviewer, accept_review=accept_review,
+                                       include=include, exclude=exclude, note=note,
+                                       manual=manual, verify_manual=verify_manual)
+        if workdir is not None:
+            record_decision(workdir, "mapping_approved", proposal, reviewer, schema=schema,
+                            schema_file=schema_file, note=note)
+    except DataPipeError as exc:
+        if workdir is not None:
+            log_refusal(workdir, "mapping_approval_refused", proposal, reviewer, exc)
+        raise
     return schema
 
 
 def reject_mapping(proposal, *, reviewer, note, workdir):
-    verify_proposal_integrity(proposal)
     reviewer = clean_name(reviewer)
-    if not reviewer:
-        raise DataPipeError("a reviewer name is required")
-    if not note or not note.strip():
-        raise DataPipeError("a reason is required when rejecting a proposal")
-    return record_decision(workdir, "mapping_rejected", proposal, reviewer, note=note.strip())
+    try:
+        verify_proposal_integrity(proposal)
+        if not reviewer:
+            raise DataPipeError("a reviewer name is required")
+        if not note or not note.strip():
+            raise DataPipeError("a reason is required when rejecting a proposal")
+        return record_decision(workdir, "mapping_rejected", proposal, reviewer, note=note.strip())
+    except DataPipeError as exc:
+        log_refusal(workdir, "mapping_rejection_refused", proposal, reviewer, exc)
+        raise
 
 
 _ = canonical

@@ -12,10 +12,10 @@ import threading
 from pathlib import Path
 
 from ..audit import AuditLog
-from ..errors import DataPipeError
+from ..errors import AuditError, DataPipeError
 from ..identity import clean_name
 from ..ingest import read_source
-from ..mapping import (build_approved_schema, proposal_state, record_decision, reject_mapping,
+from ..mapping import (build_approved_schema, log_refusal, proposal_state, record_decision, reject_mapping,
                        verify_manual_pair, verify_proposal_integrity)
 from ..policy import get_policy
 from ..schema import schema_from_dict
@@ -75,7 +75,10 @@ class ReviewService:
         return found, skipped
 
     def _records(self):
-        return AuditLog(self.workdir / "audit.jsonl").records()
+        try:
+            return AuditLog(self.workdir / "audit.jsonl").records()
+        except AuditError as exc:
+            raise ApiError(500, str(exc))
 
     @staticmethod
     def _integrity(doc):
@@ -229,10 +232,12 @@ class ReviewService:
             raise ApiError(404, "proposal not found")
         return found[pid][1]
 
-    def _check_pending(self, pid):
+    def _check_pending(self, pid, proposal=None, reviewer=None, event="mapping_approval_refused"):
         state = proposal_state(self._records(), pid)
         if state["state"] != "pending":
-            raise ApiError(409, f"this proposal was already {state['state']} by {state['by']}")
+            msg = f"this proposal was already {state['state']} by {state['by']}"
+            log_refusal(str(self.workdir), event, proposal or {"proposal_sha256": pid}, reviewer, msg)
+            raise ApiError(409, msg)
 
     def approve(self, pid, payload):
         if not isinstance(payload, dict):
@@ -247,7 +252,7 @@ class ReviewService:
                                 "(including a needs-review item, excluding an accepted one, or mapping by hand)")
         with self._lock:
             proposal = self._load(pid)
-            self._check_pending(pid)
+            self._check_pending(pid, proposal, reviewer)
             verify = None
             if manual:
                 table, reason = self._source_table(proposal)
@@ -262,6 +267,7 @@ class ReviewService:
                 schema = build_approved_schema(proposal, reviewer=reviewer, include=include, exclude=exclude,
                                                note=note, manual=manual, verify_manual=verify)
             except DataPipeError as exc:
+                log_refusal(str(self.workdir), "mapping_approval_refused", proposal, reviewer, exc)
                 raise ApiError(400, str(exc))
             safe = re.sub(r"[^A-Za-z0-9_-]+", "_", schema.name)[:60] or "schema"
             rel = Path("schemas") / f"{safe}-mapped-{pid[:10]}.json"
@@ -276,6 +282,7 @@ class ReviewService:
                                 schema_file=rel.as_posix(), note=note)
                 os.replace(tmp_name, target)
             except DataPipeError as exc:
+                log_refusal(str(self.workdir), "mapping_approval_refused", proposal, reviewer, exc)
                 raise ApiError(409, str(exc))
             finally:
                 if os.path.exists(tmp_name):
@@ -290,9 +297,9 @@ class ReviewService:
         note = self._note(payload)
         with self._lock:
             proposal = self._load(pid)
-            self._check_pending(pid)
+            self._check_pending(pid, proposal, reviewer, "mapping_rejection_refused")
             try:
-                reject_mapping(proposal, reviewer=reviewer, note=note, workdir=str(self.workdir))
+                reject_mapping(proposal, reviewer=reviewer, note=note, workdir=str(self.workdir))     # logs its own refusals
             except DataPipeError as exc:
                 raise ApiError(400, str(exc))
         return {"state": "rejected"}

@@ -13,8 +13,10 @@ INT64_MIN, INT64_MAX = -(2 ** 63), 2 ** 63 - 1
 TRUE_TOKENS = {"true", "t", "yes", "y", "1"}
 FALSE_TOKENS = {"false", "f", "no", "n", "0"}
 
-_INT_RE = re.compile(r"^[+-]?\d+$")
-_DEC_RE = re.compile(r"^[+-]?\d+(\.\d+)?$")
+# ASCII digits only: with Unicode \d, Arabic-Indic or fullwidth digits passed the pattern, int() turned them into numbers,
+# and the leading-zero rule below (which looks for the ASCII "0") never fired.
+_INT_RE = re.compile(r"^[+-]?[0-9]+$")
+_DEC_RE = re.compile(r"^[+-]?[0-9]+(\.[0-9]+)?$")
 
 
 def parse_typed(type_, raw, *, fmt=None, scale=None):

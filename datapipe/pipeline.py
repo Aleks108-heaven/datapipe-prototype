@@ -63,7 +63,6 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
     workdir = Path(workdir)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
     run_dir = workdir / "runs" / run_id
-    run_dir.mkdir(parents=True)
     audit = AuditLog(workdir / "audit.jsonl")
     input_path = Path(input_path)
 
@@ -86,6 +85,7 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
                                           "max_file_bytes": policy.max_file_bytes, "max_memory_bytes": policy.max_memory_bytes,
                                           "schema_file": Path(schema_path).name if schema_path else None,
                                           "analysis_file": Path(analysis_path).name if analysis_path else None}, actor)
+    run_dir.mkdir(parents=True)                       # only after the audit log accepted the run: a refused start leaves no empty folder
     try:
         # ---- ingest
         tbl = read_source(input_path, max_bytes=policy.max_file_bytes, fmt=fmt, encoding=encoding,
@@ -267,13 +267,16 @@ def _write_report(run_dir, doc):
                      f"{' (INFERRED)' if s.get('inferred') else ''}")
     if doc["counts"]:
         c = doc["counts"]
-        lines += ["", "## Rows", f"- total {c['rows_total']}, valid {c['valid']}, quarantined {c['quarantined']}",
-                  f"- issues by rule: {c['issues_by_rule']}"]
+        lines += ["", "## Rows", f"- total {c['rows_total']}, valid {c['valid']}, quarantined {c['quarantined']}"]
+        if c["issues_by_rule"]:
+            lines.append("- problems found, by kind:")
+            lines += [f"  - {rule}: {n}" for rule, n in sorted(c["issues_by_rule"].items())]
     if doc["warnings"]:
         lines += ["", "## Warnings"] + [f"- {w}" for w in doc["warnings"]]
     if doc["counts"] and doc["counts"]["quarantined"]:
-        lines += ["", "## Bad rows", "- see quarantine.csv (the rows and why) and issues.json; "
-                  "\"row\" counts data records, so the header is not row 1 (row 1 = the first line after the header)"]
+        lines += ["", "## Bad rows", "- see quarantine.csv (the rows and why) and issues.json.",
+                  "- \"row N\" is the N-th data record after the header (blank lines are skipped, and a value that spans several "
+                  "lines counts once), so it is not a line number in a text editor. In a spreadsheet with a header row, row N is sheet row N+1."]
     if doc.get("outputs"):
         c = doc["outputs"]["clean_csv"]
         lines += ["", "## Cleaned data", f"- {c['file']}: {c['rows']} rows that passed every check, sha256 {c['sha256']}"]
@@ -288,6 +291,15 @@ def _write_report(run_dir, doc):
 
 
 # ------------------------------------------------------------------ sign-off
+def _refuse_signoff(workdir, run_id, reviewer, message):
+    """Leave a trace of a refused sign-off (who tried, which run, why), then refuse. Never lets logging hide the refusal."""
+    try:
+        AuditLog(Path(workdir) / "audit.jsonl").append("signoff_refused", run_id, {"reason": message[:300]}, actor=reviewer or None)
+    except Exception:
+        pass
+    raise DataPipeError(message)
+
+
 def signoff(workdir, run_id, reviewer, note=""):
     if not RUN_ID_RE.match(run_id):
         raise DataPipeError("invalid run id")
@@ -295,19 +307,19 @@ def signoff(workdir, run_id, reviewer, note=""):
     result_file = run_dir / "result.json"
     if not result_file.is_file():
         raise DataPipeError("run not found")
+    reviewer = clean_name(reviewer)
     doc = json.loads(result_file.read_text(encoding="utf-8"))
     if doc["status"] != "PENDING_SIGNOFF":
-        raise DataPipeError(f"run status is {doc['status']}; only PENDING_SIGNOFF runs can be signed off")
+        _refuse_signoff(workdir, run_id, reviewer, f"run status is {doc['status']}; only PENDING_SIGNOFF runs can be signed off")
     if (run_dir / "signoff.json").exists():
-        raise DataPipeError("run has already been signed off")
-    reviewer = clean_name(reviewer)
+        _refuse_signoff(workdir, run_id, reviewer, "run has already been signed off")
     if not reviewer or same_person(reviewer, doc["actor"]):
-        raise DataPipeError("four-eyes rule: the reviewer must be a different person than the one who ran it")
+        _refuse_signoff(workdir, run_id, reviewer, "four-eyes rule: the reviewer must be a different person than the one who ran it")
     if sha256_of(doc["results"]) != doc["results_sha256"]:
-        raise DataPipeError("results were modified after the run (hash mismatch); refusing to sign off")
+        _refuse_signoff(workdir, run_id, reviewer, "results were modified after the run (hash mismatch); refusing to sign off")
     clean = (doc.get("outputs") or {}).get("clean_csv")
     if clean and (not (run_dir / clean["file"]).is_file() or _file_sha256(run_dir / clean["file"]) != clean["sha256"]):
-        raise DataPipeError("the cleaned data file is missing or was modified after the run; refusing to sign off")
+        _refuse_signoff(workdir, run_id, reviewer, "the cleaned data file is missing or was modified after the run; refusing to sign off")
     rec = AuditLog(Path(workdir) / "audit.jsonl").append(
         "signoff", run_id, {"results_sha256": doc["results_sha256"], "note": note[:500]}, actor=reviewer)
     out = {"run_id": run_id, "reviewer": reviewer, "ts": rec["ts"], "results_sha256": doc["results_sha256"],

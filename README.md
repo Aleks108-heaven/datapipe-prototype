@@ -9,7 +9,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 ## Quick start
 
     pip install duckdb pytest
-    python -m pytest                                    # 408 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
+    python -m pytest                                    # 432 tests; the browser tests need Playwright + Chromium (pip install playwright; playwright install chromium)
     python -m datapipe run examples/sales.csv --policy business \
         --schema examples/schema_sales.json --analysis examples/analysis_sales.json --actor alice
     python -m datapipe run examples/sales_dirty.csv --policy regulated --schema examples/schema_sales.json
@@ -19,7 +19,7 @@ with behaviour controlled by three policy tiers (`low`, `business`, `regulated`)
 
 A guided 5-minute walkthrough with a talk track: `python examples/demo.py --pause` (see [examples/DEMO.md](examples/DEMO.md)).
 
-Exit codes: 0 ok / pending sign-off, 1 failed, 2 blocked by policy, 3 schema needs confirmation.
+Exit codes: 0 ok / pending sign-off, 1 failed, 2 blocked by policy, 3 schema needs confirmation, 64 wrong command line (usage error).
 Each run writes `work/runs/<id>/` and appends to `work/audit.jsonl`:
 
 | File | What it is |
@@ -173,7 +173,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - No independent penetration test or code review has been done.
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (408 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (432 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 
@@ -212,6 +212,8 @@ Scope: the whole code base, by reading the code and by running working attacks a
 ### Done (earlier sessions)
 - **Windows support for the audit log.** `audit.py` picks `flock` (POSIX) or an `msvcrt` byte-range lock (Windows); schema paths returned by the review service always use `/`.
 - **Review UI fixes, 2026-10-05** (`datapipe/webui/page.py`, `server.py`, `service.py`): arrow keys now move focus together with the selection and the focus ring is visible on the filled option (inset, flips colour); undecided items show no selection; the folded sections share one row and the action bar is one row, so the first decision is on the first screen at 390x844 and 1366x650; each column card is a labelled section with a heading; errors say what to do next and keep the reviewer's decisions; the command shown after approval uses absolute paths and `--workdir`; focus moves to the outcome after Approve; long file names wrap (no horizontal scroll at 320 px); text sizes use rem; placeholder contrast >= 4.5:1; hidden/direction-changing characters in names are shown as `[U+XXXX]`; a tampered proposal explains why it cannot be approved or rejected; forced-colours mode keeps control edges; on Windows a second `datapipe review` on a busy port now fails with a clear message instead of starting silently. Also fixed: a slow proposal-list answer could paint over the proposal you had just opened (the cause of the occasional browser-test failure); answers for a page you have already left are now ignored.
+- **Data-handling fixes, 2026-10-05:** (QA-023) JSON records in which two fields flatten to the same column name (`{"a":{"b":1},"a.b":2}`) are refused as bad rows instead of silently losing a value; (QA-024) only ASCII digits count as numbers, so `٠٧` can no longer pass as 7 and dodge the leading-zero rule; (QA-025) refused approvals, rejections and sign-offs are written to the audit log (`mapping_approval_refused`, `mapping_rejection_refused`, `signoff_refused`: who, which run or proposal, why); (QA-026) a damaged audit log (torn last line, non-record line, non-UTF-8) gives a clear message and is never appended to, `verify-audit` reports how many records were intact before the problem, and a run that cannot start no longer leaves an empty run folder; (QA-027) the report explains that "row N" is the N-th data record after the header (sheet row N+1), and lists problems one per line; (QA-028) a wrong command line exits with 64, so 2 always means "blocked by policy".
+- **Worth knowing:** leading and trailing spaces are trimmed from CSV headers and values before validation (a value of `" 5 "` is read as `5`); it is not reported per cell.
 - **Review UI accessibility** (`datapipe/webui/page.py`): real buttons for navigation (Enter/Space work), focus is kept across redraws, Include/Exclude is a proper radio group (one tab stop, arrow keys), route changes are announced through a small status region, the page title and focus follow the route, and timestamps are shown in UTC.
 - **Review UI structure:** the duplicated "Mappings" list and "Map columns yourself" table were merged into one card per schema column (evidence, decision, "use a different file column"). Cards are ordered by risk from the server's verdicts and stay put while the reviewer works; a summary line counts each group; a proposed target the schema does not list is still shown. Reject now says what it is missing.
 - **Bugs found and fixed by running the browser tests:** focus was pulled away from a field the reviewer was typing in; the action bar was rebuilt on every redraw and could swallow keystrokes; the HTTP server could reset connections on Windows when it refused a POST before reading its body (it now reads the bounded body first and has a 15 s socket timeout).
