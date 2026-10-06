@@ -88,7 +88,8 @@ def _generic_date(raw, fmt="%Y-%m-%d"):
         parsed = datetime.strptime(raw, fmt).date()
     except ValueError:
         return "not a valid date for format " + fmt
-    return parsed if parsed.strftime(fmt) == raw else "date not in canonical form for format " + fmt
+    # the canonical text of a date is its ISO form; strftime("%Y") is not zero-padded below year 1000 on Linux, so it cannot be the reference
+    return parsed if parsed.isoformat() == raw else "date not in canonical form for format " + fmt
 
 
 def test_iso_date_fast_path_gives_the_same_value_or_message_as_strptime():
