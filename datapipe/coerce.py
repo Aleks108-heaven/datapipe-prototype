@@ -101,9 +101,17 @@ def _decimal(raw, scale):
     return value
 
 
+_ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
 def _date(raw, fmt):
     if not isinstance(raw, str):
         raise ValueError("not a valid date")
+    if fmt == "%Y-%m-%d" and _ISO_DATE_RE.fullmatch(raw):
+        try:
+            return date(int(raw[:4]), int(raw[5:7]), int(raw[8:]))      # same result as strptime below, ~10x faster
+        except ValueError:
+            pass                                                         # an impossible date: the generic path gives the usual message
     try:
         parsed = datetime.strptime(raw, fmt).date()
     except ValueError:

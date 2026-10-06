@@ -81,6 +81,14 @@ def test_nul_inside_text_falls_back_to_the_slow_path(tmp_path):
     assert _dump(con)[0][2] == "a\x00b"
 
 
+@pytest.mark.parametrize("text", ["a\nb", "a\rb", "a\n\nb", "x\n", "x\r", "\n", "\r", "a\nb\rc\r\nd"])
+def test_a_lone_row_whose_text_has_a_bare_line_break_loads_exactly(tmp_path, text):
+    """DuckDB's own newline detection used to misread a file of one row with a bare \\n or \\r inside a quoted value."""
+    schema = _all_types_schema()
+    con, _ = build_engine(schema, _rows([(1, text, Decimal("1"), date(2026, 1, 1), True)]), get_policy("low"), tmp_dir=tmp_path)
+    assert _dump(con)[0][2] == text
+
+
 def test_temp_folder_with_an_apostrophe_and_no_leftover_file(tmp_path):
     odd = tmp_path / "O'Brien's data"
     odd.mkdir()

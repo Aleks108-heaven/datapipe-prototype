@@ -45,6 +45,9 @@ def build_parser():
     r.add_argument("--max-memory-gb", type=float,
                    help="override the policy's memory limit (estimated RAM the parsed file may need; default 6 GB) - "
                         "only raise it on a computer that has the RAM")
+    r.add_argument("--stream", choices=["auto", "always", "never"], default="auto",
+                   help="CSV/TSV only. 'always' reads the file in chunks so memory stays flat whatever its size (needs disk space "
+                        "instead); 'never' loads it whole; 'auto' (default) streams files above 100 MB. Both give identical results")
 
     i = sub.add_parser("infer", help="print a proposed schema for a file")
     i.add_argument("input")
@@ -158,7 +161,7 @@ def main(argv=None):
                                analysis_path=args.analysis, fmt=args.format, encoding=args.encoding,
                                delimiter=args.delimiter, table=args.table, records_path=args.records_path,
                                accept_inferred=args.accept_inferred, actor=args.actor,
-                               max_file_mb=args.max_file_mb, max_memory_gb=args.max_memory_gb)
+                               max_file_mb=args.max_file_mb, max_memory_gb=args.max_memory_gb, stream=args.stream)
             print(f"{Path(path).name}: {res.status}  [{res.run_dir}]")
             for reason in res.reasons:
                 print(f"  - {reason}")

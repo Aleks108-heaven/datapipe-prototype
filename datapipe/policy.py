@@ -16,6 +16,7 @@ class Policy:
     require_signoff: bool   # results stay PENDING_SIGNOFF until a *different* person approves
     llm: str                # advisory flag for a future LLM layer: "cloud" | "cloud_masked" | "none"
     max_memory_bytes: int = 6 * 1024 ** 3   # estimated RAM the parsed file may need (rows and columns, not just bytes)
+    max_stream_bytes: int = 200 * 1024 ** 3  # CSV files are read in chunks, so memory does not grow with the file; only disk does
 
     def as_dict(self):
         return asdict(self)
@@ -26,7 +27,7 @@ class Policy:
         if max_file_mb is not None:
             if max_file_mb <= 0:
                 raise DataPipeError("--max-file-mb must be positive")
-            changes["max_file_bytes"] = int(max_file_mb * MB)
+            changes["max_file_bytes"] = changes["max_stream_bytes"] = int(max_file_mb * MB)
         if max_memory_gb is not None:
             if max_memory_gb <= 0:
                 raise DataPipeError("--max-memory-gb must be positive")

@@ -1020,8 +1020,10 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var save = h('button', { type: 'button', class: 'primary', id: 'set-save', text: 'Save settings' });
     function hint() {
       var p = info.policies[policy.value];
-      limitHint.textContent = 'Left empty, the ' + policy.value + ' policy allows files up to ' + p.max_file_mb + ' MB and an estimated ' + p.max_memory_gb + ' GB of memory. ' +
-        'Raise the memory limit only on a computer that really has that much free RAM (a file needs about 25 times its size).';
+      limitHint.textContent = 'Left empty, the ' + policy.value + ' policy loads a file whole up to ' + p.max_file_mb + ' MB and an estimated ' + p.max_memory_gb + ' GB of memory. ' +
+        'Raise the memory limit only on a computer that really has that much free RAM (a file needs about 25 times its size). ' +
+        'A larger CSV or TSV file is read in chunks instead, so memory stays flat: up to ' + p.max_stream_gb + ' GB, using disk space for the work files. ' +
+        'A limit entered here applies to both ways of reading.';
     }
     policy.addEventListener('change', hint); hint();
     function num(input) { var v = input.value.trim(); return v === '' ? null : (isNaN(Number(v)) ? v : Number(v)); }

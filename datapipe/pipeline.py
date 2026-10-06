@@ -18,11 +18,16 @@ from .analyze import AnalysisSpec, load_analysis, run_analysis
 from .audit import AuditLog, default_actor
 from .errors import DataPipeError
 from .identity import clean_name, same_person
-from .ingest import read_source
+from .ingest import ScanInfo, read_source
+from .outputs import clean_cell as _clean_cell, csv_safe as _csv_safe, file_sha256 as _file_sha256
+from .outputs import formula_risk as _formula_risk, write_quarantine_files
 from .policy import get_policy
 from .schema import compare_columns, infer_schema, load_schema
-from .validate import MASK, validate
+from .stream import StreamBackend
+from .validate import Validated, validate
 
+STREAM_MODES = ("auto", "always", "never")
+STREAM_AUTO_BYTES = 100 * 1024 * 1024      # CSV files above this are streamed (memory stays flat); smaller ones are loaded
 RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
 EXIT_CODES = {"COMPLETED": 0, "COMPLETED_WITH_WARNINGS": 0, "PENDING_SIGNOFF": 0,
               "FAILED": 1, "BLOCKED": 2, "NEEDS_SCHEMA_CONFIRMATION": 3}
@@ -49,15 +54,70 @@ def sha256_of(obj):
     return hashlib.sha256(canonical(obj).encode()).hexdigest()
 
 
-def _csv_safe(value):
-    """Neutralise spreadsheet formula injection in exported cells."""
-    text = "" if value is None else str(value)
-    return "'" + text if _formula_risk(text) else text          # plain numbers such as -10.00 are shown exactly as they were in the file
+class MemoryBackend:
+    """The reference implementation: the whole file is parsed into memory. The streaming backend must give the same results."""
+    streaming = False
+
+    def __init__(self, path, run_dir, policy, *, fmt=None, encoding=None, delimiter=None, table=None, records_path=None):
+        self.path, self.run_dir, self.policy = path, run_dir, policy
+        self.options = dict(fmt=fmt, encoding=encoding, delimiter=delimiter, table=table, records_path=records_path)
+
+    def ingest(self):
+        self.tbl = tbl = read_source(self.path, max_bytes=self.policy.max_file_bytes,
+                                     max_memory_bytes=self.policy.max_memory_bytes, **self.options)
+        return ScanInfo(tbl.format, tbl.columns, len(tbl.rows), len(tbl.structural_issues), tbl.warnings,
+                        tbl.source_sha256, tbl.source_bytes)
+
+    def infer_schema(self, name):
+        return infer_schema(self.tbl, name=name)
+
+    def validate(self, schema):
+        self.schema = schema
+        self.vr = vr = validate(self.tbl, schema, self.policy)
+        return Validated(vr.rows_total, len(vr.valid_rows), len(vr.quarantined), vr.counts_by_rule())
+
+    def write_quarantine(self):
+        write_quarantine_files(self.run_dir, self.tbl.columns, self.schema, self.policy, self.vr.quarantined)
+
+    def analyze(self, schema, spec):
+        return run_analysis(schema, self.vr.valid_rows, spec, self.policy, tmp_dir=self.run_dir)
+
+    def write_clean(self, schema):
+        """clean.csv: the rows that passed every check, in file order, one column per schema column (schema names,
+        canonical values: ISO dates, plain decimals, true/false, empty = missing). PII follows the policy (masked in
+        business/regulated). Its SHA-256 goes into result.json and the audit log, and sign-off re-checks it."""
+        cols = schema.columns
+        path = self.run_dir / "clean.csv"
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow([c.name for c in cols])
+            for row in self.vr.valid_rows:
+                writer.writerow([_clean_cell(c, row[c.name], self.policy) for c in cols])
+        return {"file": path.name, "rows": len(self.vr.valid_rows), "sha256": _file_sha256(path)}
+
+    def cleanup(self):
+        pass
+
+
+def _make_backend(input_path, run_dir, policy, stream, *, fmt, encoding, delimiter, table, records_path, infer):
+    if stream not in STREAM_MODES:
+        raise DataPipeError(f"stream must be one of {list(STREAM_MODES)}")
+    csv_like = fmt == "csv" or (fmt is None and input_path.suffix.lower() in (".csv", ".tsv"))
+    try:
+        size = input_path.stat().st_size
+    except OSError:
+        size = 0                                   # the backend reports a missing file in its own words
+    if stream == "always" and not csv_like and input_path.is_file():
+        raise DataPipeError("streaming only works for CSV and TSV files; use --stream auto or never for this format")
+    if csv_like and (stream == "always" or (stream == "auto" and size > STREAM_AUTO_BYTES)):
+        return StreamBackend(input_path, run_dir, policy, encoding=encoding, delimiter=delimiter, infer=infer)
+    return MemoryBackend(input_path, run_dir, policy, fmt=fmt, encoding=encoding, delimiter=delimiter,
+                         table=table, records_path=records_path)
 
 
 def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis_path=None, fmt=None,
                  encoding=None, delimiter=None, table=None, records_path=None,
-                 accept_inferred=False, actor=None, max_file_mb=None, max_memory_gb=None) -> RunResult:
+                 accept_inferred=False, actor=None, max_file_mb=None, max_memory_gb=None, stream="auto") -> RunResult:
     policy = get_policy(policy_name).with_limits(max_file_mb, max_memory_gb)
     actor = clean_name(actor) or default_actor()
     workdir = Path(workdir)
@@ -86,16 +146,19 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
                                           "schema_file": Path(schema_path).name if schema_path else None,
                                           "analysis_file": Path(analysis_path).name if analysis_path else None}, actor)
     run_dir.mkdir(parents=True)                       # only after the audit log accepted the run: a refused start leaves no empty folder
+    backend = None
     try:
         # ---- ingest
-        tbl = read_source(input_path, max_bytes=policy.max_file_bytes, fmt=fmt, encoding=encoding,
-                          delimiter=delimiter, table=table, records_path=records_path,
-                          max_memory_bytes=policy.max_memory_bytes)
-        doc["source"].update({"format": tbl.format, "bytes": tbl.source_bytes, "sha256": tbl.source_sha256})
-        doc["warnings"].extend(tbl.warnings)
-        audit.append("ingest_done", run_id, {"format": tbl.format, "bytes": tbl.source_bytes,
-                                              "sha256": tbl.source_sha256, "rows": len(tbl.rows),
-                                              "structural_issues": len(tbl.structural_issues)}, actor)
+        backend = _make_backend(input_path, run_dir, policy, stream, fmt=fmt, encoding=encoding, delimiter=delimiter,
+                                table=table, records_path=records_path, infer=not schema_path and policy.schema_mode != "registered")
+        info = backend.ingest()
+        doc["source"].update({"format": info.format, "bytes": info.source_bytes, "sha256": info.source_sha256})
+        streamed = {"streamed": True} if backend.streaming else {}
+        doc["source"].update(streamed)
+        doc["warnings"].extend(info.warnings)
+        audit.append("ingest_done", run_id, {"format": info.format, "bytes": info.source_bytes,
+                                              "sha256": info.source_sha256, "rows": info.n_rows,
+                                              "structural_issues": info.n_structural, **streamed}, actor)
 
         # ---- schema
         if schema_path:
@@ -103,7 +166,7 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
         else:
             if policy.schema_mode == "registered":
                 return finish("BLOCKED", ["policy requires a registered, versioned schema (--schema)"])
-            schema = infer_schema(tbl, name=input_path.stem)
+            schema = backend.infer_schema(input_path.stem)
             (run_dir / "proposed_schema.json").write_text(
                 json.dumps(schema.to_dict(), indent=2) + "\n", encoding="utf-8")
             if policy.schema_mode == "confirm" and not accept_inferred:
@@ -115,7 +178,7 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
         doc["schema"] = {"name": schema.name, "version": schema.version, "inferred": schema.inferred,
                          "fingerprint": schema.fingerprint(), "provenance": schema.provenance}
 
-        missing, extra = compare_columns(schema, tbl.columns)
+        missing, extra = compare_columns(schema, info.columns)
         audit.append("schema_resolved", run_id, {**doc["schema"], "missing": [c.name for c in missing],
                                                   "extra": extra}, actor)
         missing_required = [c.name for c in missing if c.required]
@@ -129,32 +192,32 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
             doc["warnings"].append(f"columns not in schema were ignored: {extra}")
 
         # ---- validate
-        vr = validate(tbl, schema, policy)
-        counts = {"rows_total": vr.rows_total, "valid": len(vr.valid_rows),
-                  "quarantined": len(vr.quarantined), "issues_by_rule": vr.counts_by_rule()}
+        vr = backend.validate(schema)
+        counts = {"rows_total": vr.rows_total, "valid": vr.n_valid,
+                  "quarantined": vr.n_quarantined, "issues_by_rule": vr.counts_by_rule()}
         doc["counts"] = counts
         audit.append("validation_done", run_id, counts, actor)
-        if vr.quarantined:
-            _write_quarantine(run_dir, tbl, schema, vr, policy)
+        if vr.n_quarantined:
+            backend.write_quarantine()
 
         reasons = []
         if vr.rows_total == 0:
             reasons.append("file contains no data rows")
-        elif not vr.valid_rows:
+        elif not vr.n_valid:
             reasons.append("no valid rows")
-        elif vr.quarantined and policy.row_errors == "block":
-            reasons.append(f"{len(vr.quarantined)} row(s) failed validation and this policy allows none")
-        elif vr.rows_total and len(vr.quarantined) / vr.rows_total > policy.max_error_rate:
-            reasons.append(f"error rate {len(vr.quarantined) / vr.rows_total:.1%} exceeds policy limit "
+        elif vr.n_quarantined and policy.row_errors == "block":
+            reasons.append(f"{vr.n_quarantined} row(s) failed validation and this policy allows none")
+        elif vr.rows_total and vr.n_quarantined / vr.rows_total > policy.max_error_rate:
+            reasons.append(f"error rate {vr.n_quarantined / vr.rows_total:.1%} exceeds policy limit "
                            f"{policy.max_error_rate:.1%}")
         if reasons:
             return finish("BLOCKED", reasons)
-        if vr.quarantined:
-            doc["warnings"].append(f"{len(vr.quarantined)} row(s) quarantined and excluded from results")
+        if vr.n_quarantined:
+            doc["warnings"].append(f"{vr.n_quarantined} row(s) quarantined and excluded from results")
 
         # ---- analyze
         spec = load_analysis(analysis_path) if analysis_path else AnalysisSpec(metrics=[])
-        results, recon = run_analysis(schema, vr.valid_rows, spec, policy, tmp_dir=run_dir)
+        results, recon = backend.analyze(schema, spec)
         results["reconciliation"] = recon
         doc["results"] = results
         doc["results_sha256"] = sha256_of(results)
@@ -167,7 +230,7 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
                                       f"{recon['mismatches']}"])
 
         # ---- cleaned dataset: the valid rows, in file order, typed and normalised (only reached when every check passed)
-        clean = _write_clean(run_dir, schema, vr, policy)
+        clean = backend.write_clean(schema)
         doc["outputs"] = {"clean_csv": clean}
         audit.append("export_done", run_id, {"file": clean["file"], "rows": clean["rows"], "sha256": clean["sha256"]}, actor)
 
@@ -185,76 +248,12 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
             traceback.print_exc()   # off by default: a traceback can quote data values
         return finish("FAILED", [f"unexpected internal error ({type(exc).__name__}); set DATAPIPE_DEBUG=1 and run "
                                  "again to see the details on screen"])
+    finally:
+        if backend is not None:
+            backend.cleanup()
 
 
 # ------------------------------------------------------------------ outputs
-def _write_quarantine(run_dir, tbl, schema, vr, policy):
-    pii_src = {c.src for c in schema.columns if c.pii}
-    with open(run_dir / "quarantine.csv", "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(["row", "rules", "messages"] + list(tbl.columns))
-        for q in vr.quarantined:
-            raw = q.raw or {}
-            cells = []
-            for c in tbl.columns:
-                v = raw.get(c)
-                cells.append(MASK if (policy.mask_pii and c in pii_src and v not in (None, "")) else _csv_safe(v))
-            w.writerow([q.row, ";".join(sorted({i.rule for i in q.issues})),
-                        _csv_safe(" | ".join(f"{i.column or 'row'}: {i.message}" for i in q.issues))] + cells)
-    issues = [i.as_dict() for i in vr.issues][:1000]
-    (run_dir / "issues.json").write_text(json.dumps(issues, indent=2) + "\n", encoding="utf-8")
-
-
-_PLAIN_SIGNED = re.compile(r"[+-][\d\s().\-]*")     # "+49 (0) 30-1234", "-12": a number or phone, not a formula
-
-
-def _formula_risk(text):
-    """True for text a spreadsheet would execute when the CSV is opened (= @ tab CR, or +/- followed by more than a number)."""
-    if not text:
-        return False
-    if text[0] in "=@\t\r":
-        return True
-    return text[0] in "+-" and not _PLAIN_SIGNED.fullmatch(text)
-
-
-def _clean_cell(col, value, policy):
-    if value is None:
-        return ""
-    if col.pii and policy.mask_pii:
-        return MASK
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, Decimal):
-        return format(value, "f")
-    if isinstance(value, date):
-        return value.isoformat()
-    if col.type == "string":
-        return "'" + value if _formula_risk(value) else value       # numbers are never altered, only risky text
-    return str(value)
-
-
-def _write_clean(run_dir, schema, vr, policy):
-    """clean.csv: the rows that passed every check, in file order, one column per schema column (schema names,
-    canonical values: ISO dates, plain decimals, true/false, empty = missing). PII follows the policy (masked in
-    business/regulated). Its SHA-256 goes into result.json and the audit log, and sign-off re-checks it."""
-    cols = schema.columns
-    path = run_dir / "clean.csv"
-    with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh)
-        writer.writerow([c.name for c in cols])
-        for row in vr.valid_rows:
-            writer.writerow([_clean_cell(c, row[c.name], policy) for c in cols])
-    return {"file": path.name, "rows": len(vr.valid_rows), "sha256": _file_sha256(path)}
-
-
-def _file_sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for block in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
 def _write_report(run_dir, doc):
     lines = [f"# Run {doc['run_id']}", "", f"**Status:** {doc['status']}", ""]
     for r in doc["reasons"]:

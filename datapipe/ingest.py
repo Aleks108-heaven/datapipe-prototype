@@ -32,6 +32,20 @@ class RawTable:
     source_bytes: int = 0
 
 
+@dataclass
+class ScanInfo:
+    """What the pipeline needs to know about a file after ingest, whether it was loaded or only scanned."""
+    format: str
+    columns: list
+    n_rows: int                     # records that could be split into the right number of fields
+    n_structural: int               # records that could not
+    warnings: list
+    source_sha256: str
+    source_bytes: int
+    delimiter: str = None
+    inferrers: list = None          # per-column ColumnInferrer, when the scan was asked to infer a schema
+
+
 # ---------------------------------------------------------------- entry point
 # Measured on CPython 3.14: a parsed row costs ~400 bytes plus ~170 bytes per cell (dict + str objects), and a second
 # copy exists while the rows are typed. A 99 MB, 6-column file peaked at 2.4 GB; 4 million one-character rows at 2.3 GB.
@@ -68,7 +82,7 @@ def read_source(path, *, max_bytes, fmt=None, encoding=None, delimiter=None,
         raise IngestError("file is empty")
     data = path.read_bytes()
     if b"\x00" in data:
-        raise IngestError("file contains NUL bytes (binary or UTF-16/32 data); convert to UTF-8 first")
+        raise IngestError(NUL_MESSAGE)
     text = _decode(data, encoding)
     fmt = fmt or detect_format(path, text)
     if fmt == "csv":
@@ -100,23 +114,51 @@ def detect_format(path, text):
     raise IngestError("cannot detect format from extension or content; pass --format")
 
 
+NUL_MESSAGE = "file contains NUL bytes (binary or UTF-16/32 data); convert to UTF-8 first"
+ENCODING_MESSAGE = "file is not valid in the expected encoding (default UTF-8); pass --encoding explicitly"
+
+
 def _decode(data, encoding):
     try:
         return data.decode(encoding) if encoding else data.decode("utf-8-sig")
     except (UnicodeDecodeError, LookupError):
-        raise IngestError("file is not valid in the expected encoding (default UTF-8); pass --encoding explicitly")
+        raise IngestError(ENCODING_MESSAGE)
 
 
 # ---------------------------------------------------------------- CSV / TSV
+def sniff_delimiter(first_line):
+    """(delimiter, warning or None) from the header line."""
+    counts = {d: first_line.count(d) for d in ",;\t|"}
+    delimiter = max(counts, key=counts.get) if max(counts.values()) > 0 else ","
+    warning = None
+    if sum(1 for c in counts.values() if c > 0) > 1:   # only flag genuinely ambiguous headers
+        warning = (f"delimiter auto-detected as {delimiter!r} but the header contains other "
+                   "candidate delimiters; pass --delimiter to make it explicit")
+    return delimiter, warning
+
+
+def check_header(header):
+    """(header with spaces removed, how many names had them). Refuses empty and duplicate names."""
+    trimmed = sum(1 for h in header if h != h.strip())
+    header = [h.strip() for h in header]
+    if any(h == "" for h in header):
+        raise IngestError("header contains an empty column name")
+    if len(set(header)) != len(header):
+        raise IngestError("header contains duplicate column names")
+    return header, trimmed
+
+
+def trimmed_warning(trimmed):
+    return (f"{trimmed} record(s) or header(s) had spaces at the start or end of a value removed before checking "
+            "(for example ' 5 ' is read as '5')")
+
+
 def parse_csv(text, delimiter=None, max_memory_bytes=None) -> RawTable:
     warnings = []
     if delimiter is None:
-        first_line = text.split("\n", 1)[0]
-        counts = {d: first_line.count(d) for d in ",;\t|"}
-        delimiter = max(counts, key=counts.get) if max(counts.values()) > 0 else ","
-        if sum(1 for c in counts.values() if c > 0) > 1:   # only flag genuinely ambiguous headers
-            warnings.append(f"delimiter auto-detected as {delimiter!r} but the header contains other "
-                            "candidate delimiters; pass --delimiter to make it explicit")
+        delimiter, warning = sniff_delimiter(text.split("\n", 1)[0])
+        if warning:
+            warnings.append(warning)
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter, strict=True)
     try:
         header = next(reader)
@@ -124,12 +166,7 @@ def parse_csv(text, delimiter=None, max_memory_bytes=None) -> RawTable:
         raise IngestError("no header row found")
     except csv.Error as exc:
         raise IngestError(f"malformed CSV header: {exc}")
-    trimmed = sum(1 for h in header if h != h.strip())
-    header = [h.strip() for h in header]
-    if any(h == "" for h in header):
-        raise IngestError("header contains an empty column name")
-    if len(set(header)) != len(header):
-        raise IngestError("header contains duplicate column names")
+    header, trimmed = check_header(header)
     rows, numbers, issues = [], [], []
     n = 0
     try:
@@ -150,8 +187,7 @@ def parse_csv(text, delimiter=None, max_memory_bytes=None) -> RawTable:
     except csv.Error as exc:
         raise IngestError(f"malformed CSV near record {n + 1}: {exc}")
     if trimmed:
-        warnings.append(f"{trimmed} record(s) or header(s) had spaces at the start or end of a value removed before checking "
-                        "(for example ' 5 ' is read as '5')")
+        warnings.append(trimmed_warning(trimmed))
     if not rows and not issues:
         warnings.append("file has a header but no data rows")
     return RawTable("csv", header, rows, numbers, issues, warnings)

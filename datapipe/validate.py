@@ -43,11 +43,54 @@ class ValidationResult:
         return dict(sorted(out.items()))
 
 
+@dataclass
+class Validated:
+    """What the pipeline needs to know after validation, whether the rows are in memory or were streamed through."""
+    rows_total: int
+    n_valid: int
+    n_quarantined: int
+    by_rule: dict
+
+    def counts_by_rule(self):
+        return dict(sorted(self.by_rule.items()))
+
+
 def _show(value, col, policy):
     if col is not None and col.pii and policy.mask_pii:
         return MASK
     text = str(value)
     return text if len(text) <= 40 else text[:37] + "..."
+
+
+def validate_row(row_no, raw_row, schema, present_cols, null_tokens, policy):
+    """Type and check one row. Returns (typed row, issues). The in-memory and the streaming pipeline both use this."""
+    typed = {"_row": row_no}
+    issues = []
+    for col in schema.columns:
+        if col.src not in present_cols:
+            typed[col.name] = None           # absent optional column (drift already checked upstream)
+            continue
+        raw = raw_row.get(col.src)
+        if isinstance(raw, str):
+            raw = raw.strip()
+        if raw is None or (isinstance(raw, str) and raw in null_tokens):
+            typed[col.name] = None
+            if col.required:
+                issues.append(Issue(row_no, col.name, "required", "required value is missing"))
+            continue
+        try:
+            value = col.parse(raw)
+        except ValueError as exc:
+            issues.append(Issue(row_no, col.name, "type", str(exc), _show(raw, col, policy)))
+            typed[col.name] = None
+            continue
+        issues.extend(_constraints(row_no, col, value, raw, policy))
+        typed[col.name] = value
+    return typed, issues
+
+
+def duplicate_issue(row_no, col, members, value, policy):
+    return Issue(row_no, col.name, "unique", f"duplicate value shared by {members} rows", _show(value, col, policy))
 
 
 def validate(table, schema, policy) -> ValidationResult:
@@ -64,28 +107,7 @@ def validate(table, schema, policy) -> ValidationResult:
 
     for row_no, raw_row in zip(table.row_numbers, table.rows):
         raw_by_row[row_no] = raw_row
-        typed = {"_row": row_no}
-        issues = []
-        for col in schema.columns:
-            if col.src not in present_cols:
-                typed[col.name] = None           # absent optional column (drift already checked upstream)
-                continue
-            raw = raw_row.get(col.src)
-            if isinstance(raw, str):
-                raw = raw.strip()
-            if raw is None or (isinstance(raw, str) and raw in null_tokens):
-                typed[col.name] = None
-                if col.required:
-                    issues.append(Issue(row_no, col.name, "required", "required value is missing"))
-                continue
-            try:
-                value = col.parse(raw)
-            except ValueError as exc:
-                issues.append(Issue(row_no, col.name, "type", str(exc), _show(raw, col, policy)))
-                typed[col.name] = None
-                continue
-            issues.extend(_constraints(row_no, col, value, raw, policy))
-            typed[col.name] = value
+        typed, issues = validate_row(row_no, raw_row, schema, present_cols, null_tokens, policy)
         typed_rows[row_no] = typed
         if issues:
             per_row_issues.setdefault(row_no, []).extend(issues)
@@ -102,9 +124,7 @@ def validate(table, schema, policy) -> ValidationResult:
         for value, members in groups.items():
             if len(members) > 1:
                 for row_no in members:
-                    per_row_issues.setdefault(row_no, []).append(Issue(
-                        row_no, col.name, "unique",
-                        f"duplicate value shared by {len(members)} rows", _show(value, col, policy)))
+                    per_row_issues.setdefault(row_no, []).append(duplicate_issue(row_no, col, len(members), value, policy))
 
     for row_no in sorted(set(typed_rows) | set(per_row_issues)):
         if row_no in per_row_issues:

@@ -280,20 +280,68 @@ def present_values(values):
     return out
 
 
-def infer_schema(table, name="inferred") -> Schema:
-    """Best-effort proposal. A human must review it: inference cannot know meaning, PII or uniqueness."""
+def _is_bool_text(v):
+    return isinstance(v, bool) or (isinstance(v, str) and v.lower() in ("true", "false"))
+
+
+def _parses(type_):
+    def test(value):
+        try:
+            parse_typed(type_, value)
+            return True
+        except ValueError:
+            return False
+    return test
+
+
+class ColumnInferrer:
+    """infer_type for one column, fed one value at a time (so a file of any size can be inferred in a single pass).
+    Gives exactly the type infer_type would give for the same values."""
+    _TESTS = (("boolean", _is_bool_text), ("integer", _parses("integer")),
+              ("decimal", _parses("decimal")), ("date", _parses("date")))
+
+    def __init__(self):
+        self.rows = 0
+        self.present = 0
+        self._alive = list(self._TESTS)
+
+    def add(self, value):
+        self.rows += 1
+        value = value.strip() if isinstance(value, str) else value
+        if value is None or value == "":
+            return
+        self.present += 1
+        if self._alive:
+            self._alive = [(t, fn) for t, fn in self._alive if fn(value)]
+
+    @property
+    def type(self):
+        return self._alive[0][0] if self.present and self._alive else "string"
+
+    @property
+    def required(self):
+        return self.present == self.rows and self.rows > 0
+
+
+def schema_from_inferrers(columns, inferrers, name="inferred") -> Schema:
     taken, cols = set(), []
-    for src in table.columns:
-        values = [r.get(src) for r in table.rows]
-        present = present_values(values)
+    for src, inf in zip(columns, inferrers):
         cname = _sanitize(src, taken)
         taken.add(cname)
-        cols.append(Column(
-            name=cname, type=infer_type(present), source=src if src != cname else None,
-            required=len(present) == len(values) and len(values) > 0,
-            pii=bool(PII_HINT_RE.search(src)),
-        ))
+        cols.append(Column(name=cname, type=inf.type, source=src if src != cname else None,
+                           required=inf.required, pii=bool(PII_HINT_RE.search(src))))
     return Schema(name=name, version=0, columns=cols, inferred=True)
+
+
+def infer_schema(table, name="inferred") -> Schema:
+    """Best-effort proposal. A human must review it: inference cannot know meaning, PII or uniqueness."""
+    inferrers = []
+    for src in table.columns:
+        inf = ColumnInferrer()
+        for r in table.rows:
+            inf.add(r.get(src))
+        inferrers.append(inf)
+    return schema_from_inferrers(table.columns, inferrers, name)
 
 
 # ------------------------------------------------------------------ drift

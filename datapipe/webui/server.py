@@ -54,7 +54,7 @@ class ReviewServer(ThreadingHTTPServer):
                 "system": f"{platform.system()} {platform.release()}", "frozen": bool(getattr(sys, "frozen", False)),
                 "workdir": str(runner.workdir) if runner else "", "folders": [str(d) for d in runner.data_dirs] if runner else [],
                 "policies": {p.name: {"max_file_mb": p.max_file_bytes // 1024 ** 2, "max_memory_gb": p.max_memory_bytes // 1024 ** 3,
-                                      "mask_pii": p.mask_pii} for p in POLICIES.values()}}
+                                      "max_stream_gb": p.max_stream_bytes // 1024 ** 3, "mask_pii": p.mask_pii} for p in POLICIES.values()}}
 
     @property
     def url(self):
