@@ -175,7 +175,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.server.settings is None:
             return self._error(404, "not found")
         if path == "/api/settings":
-            return self._json(200, {"settings": self.server.settings.get(), "info": self.server.settings_info()})
+            return self._json(200, {"settings": self.server.settings.get(), "info": self.server.settings_info(),
+                                    "llm_key": self.server.settings.llm_key_status()})      # saved or not: never the key itself
         from ..audit import AuditLog
         ok, n, msg = AuditLog(self.server.settings.path.parent / "audit.jsonl").verify()
         return self._json(200, {"ok": ok, "records": n, "message": msg})
@@ -247,6 +248,10 @@ class Handler(BaseHTTPRequestHandler):
             path = urlsplit(self.path).path
             if path == "/api/settings" and self.server.settings is not None:
                 return self._json(200, {"settings": self.server.settings.update(payload)})
+            if path == "/api/settings/llm-key" and self.server.settings is not None:
+                return self._json(200, {"llm_key": self.server.settings.set_llm_key(payload)})
+            if path == "/api/settings/llm-key/clear" and self.server.settings is not None:
+                return self._json(200, {"llm_key": self.server.settings.clear_llm_key()})
             if path in ("/api/run/start", "/api/run/draft-schema", "/api/run/check", "/api/run/sample") and self.server.runner is not None:
                 runner = self.server.runner
                 action = {"/api/run/start": runner.start, "/api/run/draft-schema": runner.draft_schema, "/api/run/check": runner.check,

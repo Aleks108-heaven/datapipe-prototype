@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 
 from ..identity import clean_name
+from ..llm import keystore
 from ..policy import POLICIES
 from .service import ApiError
 
@@ -67,6 +68,32 @@ class SettingsStore:
                 except ApiError:
                     pass
         return out
+
+    # The LLM API key is not part of settings.json (that file lives in the work folder): it goes to a per-user file through
+    # llm/keystore.py. These methods are the only way the page touches it, and none of them returns the key.
+    @staticmethod
+    def llm_key_status():
+        return keystore.status()
+
+    @staticmethod
+    def set_llm_key(payload):
+        if not isinstance(payload, dict):
+            raise ApiError(400, "invalid request")
+        try:
+            keystore.save_key(payload.get("key"))
+        except ValueError as exc:
+            raise ApiError(400, str(exc))
+        except OSError:
+            raise ApiError(500, "the key could not be saved (is the per-user folder writable?)")
+        return keystore.status()
+
+    @staticmethod
+    def clear_llm_key():
+        try:
+            keystore.clear_key()
+        except OSError:
+            raise ApiError(500, "the saved key could not be removed")
+        return keystore.status()
 
     def update(self, payload):
         new = validate(payload)

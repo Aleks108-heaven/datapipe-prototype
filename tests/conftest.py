@@ -11,6 +11,14 @@ ANALYSIS = EX / "analysis_sales.json"
 CLEAN_CSV = (EX / "sales.csv").read_text()
 
 
+@pytest.fixture(autouse=True)
+def _private_config_dir(tmp_path, monkeypatch):
+    """No test may read or write the developer's real per-user folder (where the saved LLM key lives) or pick up a key from
+    their environment."""
+    monkeypatch.setenv("DATAPIPE_CONFIG_DIR", str(tmp_path / "user-config"))
+    monkeypatch.delenv("DATAPIPE_LLM_API_KEY", raising=False)
+
+
 @pytest.fixture
 def wd(tmp_path):
     return tmp_path / "work"

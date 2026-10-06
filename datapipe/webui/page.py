@@ -999,11 +999,11 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var seq = ++navSeq;
     clear(app);
     app.appendChild(h('p', { class: 'muted', text: 'Loading…' }));
-    api('/api/settings').then(function (d) { if (seq === navSeq) buildSettings(d.settings, d.info); })
+    api('/api/settings').then(function (d) { if (seq === navSeq) buildSettings(d.settings, d.info, d.llm_key); })
       .catch(function (e) { if (seq === navSeq) showError(e); });
   }
 
-  function buildSettings(s, info) {
+  function buildSettings(s, info, llmKey) {
     clear(app);
     var heading = h('h2', { text: 'Settings' });
     app.appendChild(heading);
@@ -1046,6 +1046,38 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         field('Memory limit in GB (empty = policy limit)', 'set-maxmem', maxMem),
         field('Appearance', 'set-theme', theme)),
       limitHint, h('div', { class: 'btns' }, save), msg));
+
+    // The model key is write-only: the page can save or remove it but the server never sends it back.
+    var keyInput = h('input', { id: 'set-llmkey', type: 'password', maxlength: '512', autocomplete: 'off', spellcheck: 'false' });
+    var keyState = h('div', { class: 'small', id: 'set-llmkey-state', role: 'status' });
+    var keyMsg = h('div', { class: 'small', id: 'set-llmkey-msg', role: 'status' });
+    var keySave = h('button', { type: 'button', class: 'primary', id: 'set-llmkey-save', text: 'Save key' });
+    var keyClear = h('button', { type: 'button', class: 'secondary', id: 'set-llmkey-clear', text: 'Remove saved key' });
+    function showKey(k) {
+      keyInput.placeholder = k.saved ? 'Saved. Paste a new key to replace it' : 'Paste your key';
+      keyClear.disabled = !k.saved;
+      keyState.textContent = (k.saved ? 'A key is saved on this computer.' : 'No key is saved.') +
+        (k.environment ? ' The environment variable DATAPIPE_LLM_API_KEY is set and takes priority over the saved key.' : '') +
+        ' File: ' + k.path;
+    }
+    var keyNow = llmKey;                                                // what the server last said: saved or not
+    showKey(keyNow);
+    function keyCall(path, body, done, clearField) {
+      keySave.disabled = true; keyClear.disabled = true; keyMsg.textContent = 'Working…';
+      api(path, { method: 'POST', body: body })
+        .then(function (res) { keyNow = res.llm_key; keyMsg.textContent = done; if (clearField) { keyInput.value = ''; } })
+        .catch(function (e) { keyMsg.textContent = e.message; })           // on a failure the typed text stays, so it can be fixed
+        .then(function () { showKey(keyNow); keySave.disabled = false; });
+    }
+    keySave.addEventListener('click', function () { keyCall('/api/settings/llm-key', { key: keyInput.value }, 'Key saved.', true); });
+    keyClear.addEventListener('click', function () { keyCall('/api/settings/llm-key/clear', {}, 'Saved key removed.', false); });
+    app.appendChild(h('div', { class: 'card' }, h('h3', { text: 'Language model key (optional)' }),
+      h('p', { class: 'small muted', text: 'Only needed to map columns with a model server that asks for a key, such as LM Studio or a hosted service ' +
+        '(datapipe map --provider openai-compat). The Run tab does not use it.' }),
+      h('p', { class: 'small muted', text: 'Stored as plain text in your own user folder, not in the work folder. It is sent only to the server you give ' +
+        'with --base-url, so save one only for a server you trust. It is never shown again; to change it, paste a new one.' }),
+      h('div', { class: 'runfields' }, field('API key', 'set-llmkey', keyInput)),
+      keyState, h('div', { class: 'btns' }, keySave, keyClear), keyMsg));
 
     var audit = h('button', { type: 'button', class: 'secondary small', id: 'set-audit', text: 'Check the audit log', onclick: function () {
       auditMsg.textContent = 'Checking…';

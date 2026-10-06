@@ -9,6 +9,7 @@ import urllib.request
 from dataclasses import dataclass, field
 
 from ..errors import DataPipeError
+from . import keystore
 from .prompt import SYSTEM, render_user
 
 
@@ -150,7 +151,8 @@ class OpenAICompatProvider(LLMProvider):
 
     def __init__(self, model=None, api_key=None, base_url="http://127.0.0.1:11434/v1", timeout=120, max_tokens=2000):
         self.model = model or os.environ.get("DATAPIPE_LLM_MODEL")
-        self.api_key = api_key or os.environ.get("DATAPIPE_LLM_API_KEY")
+        # the explicit argument wins, then the environment variable, then the key saved on the app's Settings page
+        self.api_key = api_key or os.environ.get(keystore.ENV_VAR) or keystore.load_key()
         if not self.model:
             raise ProviderError("no model configured: pass --model or set DATAPIPE_LLM_MODEL")
         self.base_url = base_url.rstrip("/")
@@ -161,7 +163,8 @@ class OpenAICompatProvider(LLMProvider):
         proxies_to_cloud = re.search(r"(^|[:\-_/])cloud$", self.model.lower()) is not None
         self.locality = "local" if on_this_machine and not proxies_to_cloud else "cloud"
         if not on_this_machine and not self.api_key:
-            raise ProviderError("DATAPIPE_LLM_API_KEY is not set (needed for a non-local endpoint)")
+            raise ProviderError("no API key (needed for a non-local endpoint): save one on the app's Settings page "
+                                "or set DATAPIPE_LLM_API_KEY")
         self.timeout = timeout
         self.max_tokens = max_tokens
 
@@ -196,7 +199,9 @@ class OpenAICompatProvider(LLMProvider):
                 del payload["response_format"]                   # this server does not support constrained output: ask once more
                 raw = self._post(payload)
         except urllib.error.HTTPError as exc:
-            raise ProviderError(f"LLM API returned HTTP {exc.code}")
+            hint = (" - the server rejected the API key: save a valid one on the app's Settings page or set DATAPIPE_LLM_API_KEY"
+                    if exc.code in (401, 403) else "")
+            raise ProviderError(f"LLM API returned HTTP {exc.code}{hint}")
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
             raise ProviderError(f"LLM API request failed ({type(exc).__name__})")
         try:
