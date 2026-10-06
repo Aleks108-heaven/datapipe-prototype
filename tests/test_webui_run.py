@@ -418,6 +418,27 @@ def test_gear_settings_and_csv_buttons_in_the_browser(app):
         browser.close()
         assert errors == []
 
+def test_desktop_nav_labels_keep_a_visible_space_between_the_words(app):
+    """'Run' + 'a file' are two flex items; their space used to collapse and the nav read 'Runa file' / 'Reviewmappings'."""
+    from playwright.sync_api import sync_playwright
+    gap_js = """(id) => {
+        const a = document.getElementById(id), span = a.querySelector('.navtext');
+        const r = document.createRange(); r.selectNodeContents(a.firstChild);
+        return span.getBoundingClientRect().left - r.getBoundingClientRect().right;
+    }"""
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+        except Exception as exc:
+            pytest.skip(f"Chromium not available: {exc}")
+        page = browser.new_page(viewport={"width": 1366, "height": 768})
+        page.goto(f"http://127.0.0.1:{app.port}/?t={TOKEN}&go=run")
+        page.wait_for_selector("#nav-run")
+        for nav_id in ("nav-run", "nav-review"):
+            assert page.evaluate(gap_js, nav_id) >= 2, f"{nav_id}: no visible space between the words"
+        page.set_viewport_size({"width": 390, "height": 844})                           # phones show the short labels only
+        assert not page.locator("#nav-run .navtext").is_visible()
+        browser.close()
 
 
 # ---------------------------------------------------------------- level 2: built-in sample, standalone-program behaviour

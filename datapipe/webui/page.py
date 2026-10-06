@@ -158,7 +158,7 @@ button.small{padding:var(--s2) var(--s3);min-height:var(--tap-sm);font-size:var(
 @media (max-width:899px){.jump{display:inline-block}}
 header.top nav{display:flex;gap:var(--s2);flex:1}
 header.top nav a.gear{margin-left:auto;gap:var(--s1)}
-header.top nav a{color:var(--text);text-decoration:none;padding:var(--s2) var(--s3);border-radius:var(--r-md);min-height:var(--tap-sm);display:inline-flex;align-items:center}
+header.top nav a{color:var(--text);text-decoration:none;padding:var(--s2) var(--s3);border-radius:var(--r-md);min-height:var(--tap-sm);display:inline-flex;align-items:center;gap:.3em}   /* the gap is the space between "Run" and "a file": flex items drop it */
 header.top nav a[aria-current=page]{background:var(--accent);color:var(--accent-ink);font-weight:650}
 header.top nav a:focus-visible,a.dl:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .runfields{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--s3);margin:var(--s3) 0}
