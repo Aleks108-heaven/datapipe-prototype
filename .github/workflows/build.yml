@@ -2,7 +2,11 @@ name: build standalone program
 
 # Builds a single-file program that needs no Python, for Windows, macOS (Apple silicon) and Linux, and smoke-tests it.
 # Run it by hand (Actions tab > "build standalone program" > Run workflow) to get the files as downloadable artifacts.
-# Pushing a tag such as v0.1.0 also publishes them as a GitHub Release.
+# Pushing a tag such as v0.1.0 also publishes them as a GitHub Release, with a SHA256SUMS.txt to check a download against.
+#
+# Supply chain: every action is pinned to a commit (Dependabot proposes updates), and everything pip installs comes from
+# requirements/build.txt, which records the SHA-256 of every file, so a replaced upload is refused. The pip cache is not used here:
+# a release must not be built from files restored out of a cache that a pull request could have written.
 on:
   workflow_dispatch:
   push:
@@ -29,12 +33,16 @@ jobs:
             built: dist/datapipe
             asset: datapipe-linux-x86_64.tar.gz
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false     # later steps never push, so the token is not left in the checkout
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.13"
-      - name: Install the package and PyInstaller
-        run: python -m pip install . pyinstaller
+      - name: Install the locked build tools (each file is checked against its recorded hash), then the project itself
+        run: |
+          python -m pip install --require-hashes -r requirements/build.txt
+          python -m pip install --no-deps --no-build-isolation .
       - name: Build
         run: python packaging/build.py
       - name: Smoke test the built program (no Python involved)
@@ -69,7 +77,7 @@ jobs:
             *) cp "${{ matrix.built }}" "out/${{ matrix.asset }}" ;;
           esac
           ls -l out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ${{ matrix.asset }}
           path: out/${{ matrix.asset }}
@@ -80,7 +88,7 @@ jobs:
         run: |
           mkdir -p installer
           cp dist/datapipe-setup-*.exe installer/datapipe-windows-setup.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: runner.os == 'Windows'
         with:
           name: datapipe-windows-setup.exe
@@ -95,11 +103,15 @@ jobs:
     permissions:
       contents: write           # only this job, and only for tag builds, may create the release
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: assets
           merge-multiple: true
+      - name: Record the checksum of every file, so a download can be verified
+        run: cd assets && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Create the release
-        env:
+        env:                                   # the tag name goes in through the environment, never pasted into the script text
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" assets/* --repo "${{ github.repository }}" --title "${{ github.ref_name }}" --generate-notes
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: gh release create "$TAG" assets/* --repo "$REPO" --title "$TAG" --generate-notes

@@ -1,0 +1,4 @@
+# What the standalone program and the installer are built with. Edit this file, then regenerate build.txt (see README.md).
+duckdb>=1.0,<2
+pyinstaller
+setuptools>=64            # the project is installed with --no-build-isolation, so the build tool must be in the lock too

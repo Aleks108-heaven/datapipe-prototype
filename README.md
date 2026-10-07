@@ -178,7 +178,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - A proposal file placed in the mappings folder is trusted if its hash seal is internally consistent (the seal proves it was not edited, not who wrote it).
 - Metric authors can read the DuckDB version and settings (`version()`, `duckdb_settings()`), which includes the working-folder path. Treat analysis files as trusted code.
 - Report tables print data values verbatim; a hostile value cannot execute anything but can distort the Markdown layout.
-- Dependencies are not pinned (`duckdb>=1.0`), there is no lock file, and `pip-audit` is not in CI; GitHub Actions are referenced by tag, not by commit SHA.
+- Supply chain: CI and the release build install only from hash-locked files (`requirements/`), every GitHub Action is pinned to a commit, `pip-audit` runs in CI (also weekly) and Dependabot proposes updates; releases carry a `SHA256SUMS.txt`. Still open: the Windows and macOS builds are not code-signed, the release build does not yet produce a signed provenance attestation, the Chromium that the browser tests download and Inno Setup (preinstalled on the Windows runner) are not pinned, and a person who installs with plain `pip install` gets the newest `duckdb` below version 2, not the locked one.
 - No independent penetration test or code review has been done.
 
 ## Project status

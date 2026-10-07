@@ -1,0 +1,5 @@
+# What the test suite needs. Edit this file, then regenerate test.txt (see README.md).
+duckdb>=1.0,<2
+pytest
+playwright
+setuptools>=64            # the project is installed with --no-build-isolation, so the build tool must be in the lock too

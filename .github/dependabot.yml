@@ -1,0 +1,16 @@
+# Dependabot opens a pull request when a pinned GitHub Action or a locked Python package has a new release; CI runs on that pull request,
+# so an update is only merged after the tests (and the vulnerability audit) have run on it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+  - package-ecosystem: pip
+    directory: /requirements
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"

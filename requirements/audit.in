@@ -1,0 +1,2 @@
+# The tool that checks the locked requirements for known vulnerabilities. Regenerate audit.txt after editing (see README.md).
+pip-audit

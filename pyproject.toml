@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Prototype: policy-driven, auditable pipeline for CSV/JSON/JSONL/SQL-dump data"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["duckdb>=1.0"]
+dependencies = ["duckdb>=1.0,<2"]       # a new major version may change SQL behaviour: it is tried (Dependabot + CI) before it is allowed
 
 [project.optional-dependencies]
 test = ["pytest", "playwright"]
