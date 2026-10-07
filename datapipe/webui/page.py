@@ -64,7 +64,8 @@ button{overflow-wrap:normal}
 .folds details>summary{padding:var(--s2) 0}
 button.back{background:none;border:0;color:var(--accent);display:inline-block;padding:var(--s2) 0;min-height:var(--tap);cursor:pointer;text-align:left}
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-h2[tabindex="-1"]:focus{outline:none}
+h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none}
+.settings-jump{display:flex;flex-wrap:wrap;gap:var(--s2);margin:0 0 var(--s3)}      /* not .jump: that is the review page's own button */
 button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 h2{font-size:1.15rem;margin:var(--s5) 0 var(--s2);overflow-wrap:anywhere}
 h3{font-size:1rem;margin:0;overflow-wrap:anywhere;min-width:0}
@@ -1128,6 +1129,18 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var heading = h('h2', { text: t('Settings') });
     app.appendChild(heading);
     arrived(t('Settings'), heading, t('Settings'));
+    // The page is four cards long. Buttons rather than # links (the address bar's # is the page's own route); each one scrolls to its card
+    // and puts keyboard focus on the card's heading, so a screen reader starts reading there.
+    var jumpTo = [['set-card-general', t('General')], ['set-llm-card', t('Language model')], ['set-card-key', t('Key')], ['set-card-about', t('About')]];
+    app.appendChild(h('nav', { class: 'settings-jump', 'aria-label': t('On this page') }, jumpTo.map(function (j) {
+      return h('button', { type: 'button', class: 'secondary small', 'data-jump': j[0], text: j[1], onclick: function () {
+        var card = document.getElementById(j[0]);
+        card.scrollIntoView({ block: 'start' });
+        var title = card.querySelector('h3');
+        title.setAttribute('tabindex', '-1');
+        title.focus({ preventScroll: true });
+      } });
+    })));
     var name = h('input', { id: 'set-actor', type: 'text', maxlength: '80', autocomplete: 'off', value: s.actor || '', placeholder: t('Your name') });
     var policy = h('select', { id: 'set-policy' }, Object.keys(info.policies).map(function (p) { return h('option', { value: p, text: p }); }));
     policy.value = s.policy;
@@ -1161,7 +1174,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         }).catch(function (e) { msg.textContent = e.message; })
         .then(function () { save.disabled = false; });
     });
-    app.appendChild(h('div', { class: 'card' },
+    app.appendChild(h('div', { class: 'card', id: 'set-card-general' }, h('h3', { text: t('General') }),
       h('p', { class: 'small muted', text: t('Saved in the work folder on this computer, so they are still here the next time you start the app.') }),
       h('div', { class: 'runfields' },
         field(t('Your name (default for new runs)'), 'set-actor', name),
@@ -1300,7 +1313,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     }
     keySave.addEventListener('click', function () { keyCall('/api/settings/llm-key', { key: keyInput.value }, t('Key saved.'), true); });
     keyClear.addEventListener('click', function () { keyCall('/api/settings/llm-key/clear', {}, t('Saved key removed.'), false); });
-    app.appendChild(h('div', { class: 'card' }, h('h3', { text: t('Key for the model server (optional)') }),
+    app.appendChild(h('div', { class: 'card', id: 'set-card-key' }, h('h3', { text: t('Key for the model server (optional)') }),
       h('p', { class: 'small muted', text: t('Only needed when the server above asks for a key, such as a hosted service or LM Studio with a key switched on.') + ' ' +
         t('Ollama on this computer needs none.') }),
       keyWhere,
@@ -1314,7 +1327,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     } });
     var auditMsg = h('div', { class: 'small', id: 'set-audit-msg', role: 'status' });
     function row(dt, dd) { return [h('dt', { text: dt }), h('dd', { text: dd })]; }
-    app.appendChild(h('div', { class: 'card' }, h('h3', { text: t('About this installation') }), h('dl', { class: 'meta' },
+    app.appendChild(h('div', { class: 'card', id: 'set-card-about' }, h('h3', { text: t('About this installation') }), h('dl', { class: 'meta' },
       row(t('Version'), 'datapipe ' + info.version + (info.frozen ? ' ' + t('(standalone program)') : '')),
       row(t('Engine'), 'Python ' + info.python + ', DuckDB ' + info.duckdb),
       row(t('System'), info.system),

@@ -329,6 +329,11 @@ UI = {
     "Cancel": "Скасувати",
     "Connection saved.": "З’єднання збережено.",
     "Saved connection removed.": "Збережене з’єднання видалено.",
+    "On this page": "На цій сторінці",
+    "General": "Загальні",
+    "Language model": "Мовна модель",
+    "Key": "Ключ",
+    "About": "Про програму",
     "Language model (optional)": "Мовна модель (необов’язково)",
     "Used when you map a new file’s columns with a model instead of the built-in offline matcher (the map command with --provider openai-compat). The Run tab does not use it. Pick the program that serves your model, check that it answers, and choose a model from its list.":
         "Використовується, коли ви зіставляєте стовпці нового файлу за допомогою моделі замість вбудованого автономного засобу (команда map з --provider openai-compat). Вкладка “Запуск файлу” її не використовує. Виберіть програму, що обслуговує вашу модель, перевірте, що вона відповідає, і виберіть модель зі списку.",
