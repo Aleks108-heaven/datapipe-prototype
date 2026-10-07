@@ -216,18 +216,37 @@ class _KeyCollision(Exception):
     pass
 
 
-def _flatten(obj, prefix="", out=None):
+class _TooDeep(Exception):
+    pass
+
+
+# Real records are a handful of levels deep. The limit is ours, not Python's: how deep the json module itself will go before it raises
+# RecursionError differs between Python versions and operating systems (3.14 on Linux and macOS parses 100,000 levels, Windows refuses),
+# and the code below recurses too, so a limit that depends on the platform is not a limit.
+MAX_JSON_DEPTH = 100
+
+
+def _flatten(obj, prefix="", out=None, depth=0):
     """Nested objects become dotted column names. Two different fields that end up with the same name (for example
-    {"a": {"b": 1}, "a.b": 2}) would silently overwrite each other, so that record is refused instead."""
+    {"a": {"b": 1}, "a.b": 2}) would silently overwrite each other, so that record is refused instead. A record nested deeper than
+    MAX_JSON_DEPTH is refused too."""
+    if depth > MAX_JSON_DEPTH:
+        raise _TooDeep()
     out = {} if out is None else out
     for key, value in obj.items():
         name = f"{prefix}{key}"
         if isinstance(value, dict):
-            _flatten(value, name + ".", out)
+            _flatten(value, name + ".", out, depth + 1)
             continue
         if name in out:
             raise _KeyCollision(name)
-        out[name] = json.dumps(value, default=str, sort_keys=True) if isinstance(value, list) else value
+        if isinstance(value, list):
+            try:
+                out[name] = json.dumps(value, default=str, sort_keys=True)
+            except RecursionError:                      # a list nested far deeper than any real record
+                raise _TooDeep()
+        else:
+            out[name] = value
     return out
 
 
@@ -243,6 +262,9 @@ def _records_to_table(numbered_records, fmt, warnings, issues=None):
             flat = _flatten(rec)
         except _KeyCollision as exc:
             issues.append((i, f"two fields of this record flatten to the same column name {str(exc)[:80]!r}; the record was not loaded"))
+            continue
+        except _TooDeep:
+            issues.append((i, f"this record is nested more than {MAX_JSON_DEPTH} levels deep; the record was not loaded"))
             continue
         for k in flat:
             if k not in seen:

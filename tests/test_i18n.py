@@ -241,6 +241,7 @@ def check_screen(page, where):
     for s in STRIP:
         text = text.replace(s, "")
     text = re.sub(r"[A-Za-z]:\\\S*", "", text)                      # a Windows path is data (a test folder may be called test_the_...)
+    text = re.sub(r"(?<!\S)/\S*", "", text)                           # so is a Linux or macOS path (/tmp/pytest-of-runner/... contains the word "of")
     found = [text[max(0, hit.start() - 50):hit.end() + 30].replace("\n", " | ") for hit in ENGLISH.finditer(text)]
     assert not found, f"{where}: English words left on the page:\n" + "\n".join(found)
     assert page.evaluate("window.__i18nMissing") == [], f"{where}: phrases without a Ukrainian entry"
@@ -250,6 +251,7 @@ def check_screen(page, where):
 @pytest.fixture
 def ukpage(app):
     pw = pytest.importorskip("playwright.sync_api")
+    app.runner._can_browse = True            # as on a normal desktop: a CI runner has no file-window tool, which would open the typing box by default
     with pw.sync_playwright() as p:
         try:
             browser = p.chromium.launch(args=["--no-sandbox"])

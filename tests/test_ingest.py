@@ -112,8 +112,48 @@ def test_json_non_object_records_are_structural_issues_and_missing_keys_are_null
 
 
 def test_json_deep_nesting_does_not_crash():
-    with pytest.raises(IngestError):
-        parse_json("[" * 100000 + "]" * 100000)
+    # How the json module reacts to 100,000 levels depends on the Python version and the platform (Windows refuses with RecursionError,
+    # 3.14 on Linux and macOS parses it), so the promise is only this: it is refused or loaded harmlessly, and never crashes the run.
+    try:
+        table = parse_json("[" * 100000 + "]" * 100000)
+    except IngestError:
+        return
+    assert table.rows == [] and table.structural_issues, "a document of nothing but empty arrays holds no records"
+
+
+def _nested(depth, leaf="1"):
+    return '{"a":' * depth + leaf + "}" * depth
+
+
+def test_a_record_nested_deeper_than_the_limit_is_refused_the_same_way_on_every_python():
+    from datapipe.ingest import MAX_JSON_DEPTH
+    too_deep = MAX_JSON_DEPTH + 5                                      # well inside the recursion limit of every Python
+    t = parse_json(f'[{{"id": 1}}, {_nested(too_deep)}, {{"id": 3}}]')
+    assert t.rows == [{"id": 1}, {"id": 3}] and t.row_numbers == [1, 3]
+    assert [n for n, _ in t.structural_issues] == [2] and "levels deep" in t.structural_issues[0][1]
+    ok = parse_json(f"[{_nested(MAX_JSON_DEPTH - 1)}]")                # a record at the limit still loads
+    assert len(ok.rows) == 1 and len(ok.columns) == 1 and ok.columns[0].count(".") == MAX_JSON_DEPTH - 2
+
+
+def test_absurdly_deep_records_never_escape_as_a_crash():
+    for depth in (1_000, 20_000):
+        try:
+            t = parse_json(f'[{{"id": 1}}, {_nested(depth)}]')
+        except IngestError:
+            continue                                                   # the json module itself refused: fine
+        assert t.rows == [{"id": 1}] and [n for n, _ in t.structural_issues] == [2]
+    deep_list = '{"a": ' + "[" * 20_000 + "]" * 20_000 + "}"             # a list, not an object, nested far too deep
+    try:
+        t = parse_json("[" + deep_list + "]")
+    except IngestError:
+        return
+    assert t.rows == [] and len(t.structural_issues) == 1
+
+
+def test_a_jsonl_line_nested_too_deep_is_a_row_level_issue():
+    from datapipe.ingest import MAX_JSON_DEPTH
+    t = parse_jsonl('{"a": 1}\n' + _nested(MAX_JSON_DEPTH + 5) + '\n{"a": 2}\n')
+    assert [r["a"] for r in t.rows] == [1, 2] and [n for n, _ in t.structural_issues] == [2]
 
 
 def test_jsonl_bad_line_is_row_level_issue():
