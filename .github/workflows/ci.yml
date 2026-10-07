@@ -14,15 +14,29 @@ on:
 permissions:
   contents: read            # the workflow token can read the repository and nothing else
 
+# A newer push to the same branch or pull request makes the older run pointless: stop it instead of paying for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pytest:
     name: ${{ matrix.os }} / py${{ matrix.python }}
+    if: github.event_name != 'schedule'           # the weekly run only needs the (cheap) vulnerability audit below
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # Minutes are limited on a private repository, and a macOS minute counts 10 times, a Windows minute 2 times. So: Linux gets every
+      # version (the oldest supported 3.11, the one the standalone program is built with 3.13, and 3.14 that a laptop installs today),
+      # Windows gets the two newest, macOS one. (3.10 ended on 2026-10-01.)
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.11", "3.13", "3.14"]      # the oldest supported version, the one the standalone program is built with, and what a laptop installs today (3.10 ended 2026-10-01)
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.13"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.13"}
+          - {os: windows-latest, python: "3.14"}
+          - {os: macos-latest, python: "3.13"}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:

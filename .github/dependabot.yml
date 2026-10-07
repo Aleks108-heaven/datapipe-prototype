@@ -1,16 +1,26 @@
 # Dependabot opens a pull request when a pinned GitHub Action or a locked Python package has a new release; CI runs on that pull request,
 # so an update is only merged after the tests (and the vulnerability audit) have run on it.
+# All updates of one kind arrive together in ONE pull request (not one each), and at most two are open at a time: every pull request runs
+# the whole test matrix, and the minutes are limited.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
     commit-message:
       prefix: "ci"
   - package-ecosystem: pip
     directory: /requirements
     schedule:
       interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      python-packages:
+        patterns: ["*"]
     commit-message:
       prefix: "deps"
