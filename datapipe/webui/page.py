@@ -168,6 +168,7 @@ header.top nav a:focus-visible,a.dl:focus-visible{outline:3px solid var(--accent
 .runfield select,.runfield input{width:100%}
 a.dl{display:inline-flex;align-items:center;min-height:var(--tap);padding:var(--s2) var(--s4);border:1px solid var(--line-strong);border-radius:var(--r-md);color:var(--text);text-decoration:none}
 a.dl:hover{border-color:var(--accent)}
+a.dl.main{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:650}
 a.dl.small{min-height:var(--tap-sm);font-size:var(--fs-sm);margin-top:var(--s2)}
 .tablecard{overflow-x:auto}
 table.metric{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
@@ -1036,6 +1037,16 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     refresh();
     checkFit();
 
+    // After a run that stopped on the metrics file: the same file and schema, without metrics. Only offered while the form still shows that file.
+    function rerunWithoutMetrics() {
+      analyses.value = '';
+      remember(); refresh();
+      if (!go.disabled) go.click();
+    }
+    function formShowsFile(name) {
+      var o = files.options[files.selectedIndex];
+      return !!o && o.value !== '' && o.text.indexOf(name + ' ') === 0;
+    }
     sample.addEventListener('click', function () {
       sample.disabled = true; msg.textContent = t('Creating a fake file of about 2 MB…');
       api('/api/run/sample', { method: 'POST', body: {} }).then(function (res) {
@@ -1059,7 +1070,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     });
 
     if (runId && RUN_ID_RE.test(runId)) {
-      api('/api/run/result?run=' + runId).then(function (r) { if (seq === navSeq) renderResult(resultBox, r); })
+      api('/api/run/result?run=' + runId).then(function (r) { if (seq === navSeq) renderResult(resultBox, r, { rerunWithoutMetrics: rerunWithoutMetrics, formShowsFile: formShowsFile }); })
         .catch(function (e) { if (seq === navSeq) msg.textContent = e.message; });
     } else {
       api('/api/run/status').then(function (s) { if (seq === navSeq && s.state === 'running') watch(seq, msg, go, refresh); }).catch(function () {});
@@ -1088,7 +1099,24 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     });
   }
 
-  function renderResult(box, r) {
+  // A look at the cleaned data itself: the first rows of clean.csv, exactly as the file has them (so a masked column is masked here too).
+  function showPreview(box, r) {
+    var body = h('div', { class: 'card tablecard', id: 'run-preview' }, h('h3', { text: t('Preview of the cleaned data') }), h('p', { class: 'small muted', text: t('Loading…') }));
+    box.appendChild(body);
+    api('/api/run/preview?run=' + r.run_id).then(function (p) {
+      clear(body);
+      body.appendChild(h('h3', { text: t('Preview of the cleaned data') }));
+      var note = p.total_rows !== null && p.total_rows !== undefined ? t('The first {0} of {1} rows of clean.csv; the file has all of them.', p.rows.length, p.total_rows) : t('The first {0} rows of clean.csv; the file has all of them.', p.rows.length);
+      if (p.policy && p.policy !== 'low') note += ' ' + t('Personal columns are masked here exactly as in the file.');
+      if (p.all_columns > p.columns.length) note += ' ' + t('Only the first {0} of {1} columns are shown.', p.columns.length, p.all_columns);
+      body.appendChild(h('p', { class: 'small muted', text: note }));
+      var head = h('tr', null, p.columns.map(function (c) { return h('th', { scope: 'col', text: c }); }));
+      body.appendChild(h('table', { class: 'metric', id: 'run-preview-table' }, h('caption', { class: 'sr-only', text: t('Preview of the cleaned data') }), h('thead', null, head),
+        h('tbody', null, p.rows.map(function (row) { return h('tr', null, row.map(function (v) { return h('td', { text: v }); })); }))));
+    }).catch(function (e) { clear(body); body.appendChild(h('h3', { text: t('Preview of the cleaned data') })); body.appendChild(h('p', { class: 'small muted', text: e.message })); });
+  }
+  var METRIC_PROBLEM = /^(metric query failed|metric SQL does not parse|a metric must be exactly one statement|only SELECT\/WITH queries are allowed in metrics)/;
+  function renderResult(box, r, actions) {
     clear(box);
     var st = RUN_STATUS[r.status] || ['b-neutral', String(r.status), ''];
     var card = h('div', { class: 'card', id: 'run-summary' },
@@ -1108,7 +1136,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
       var links = h('div', { class: 'btns' });
       r.files.forEach(function (n) {
         if (!labels[n]) return;
-        links.appendChild(h('a', { class: 'dl', href: '/api/run/download/' + r.run_id + '/' + n, text: labels[n] }));
+        links.appendChild(h('a', { class: n === 'clean.csv' ? 'dl main' : 'dl', href: '/api/run/download/' + r.run_id + '/' + n, text: labels[n] }));
       });
       card.appendChild(h('p', { class: 'small muted', text: t('Download (saved copies are also in the run folder):') }));
       card.appendChild(links);
@@ -1119,8 +1147,22 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
       card.appendChild(h('div', { class: 'btns' }, h('a', { class: 'dl', id: 'dl-metrics-zip', href: '/api/run/metrics/' + r.run_id + '/all.zip', text: t('All metrics (CSV files in a .zip)') })));
     }
     card.appendChild(h('p', { class: 'small muted', text: t('Run folder: {0}', r.folder) }));
+    if (RUN_ID_RE.test(r.run_id)) {
+      var openMsg = h('span', { class: 'small muted', id: 'run-open-msg', role: 'status' });
+      card.appendChild(h('div', { class: 'btns' }, h('button', { type: 'button', class: 'secondary small', id: 'run-open-folder', text: t('Open the run folder'), onclick: function () {
+        api('/api/run/open-folder', { method: 'POST', body: { run: r.run_id } })
+          .then(function () { openMsg.textContent = t('The folder is open. Look for it on your desktop, it may be behind this page.'); })
+          .catch(function (e) { openMsg.textContent = e.message; });
+      } }), openMsg));
+    }
+    // The cleaned data is written only when every check passed. After a metrics failure there is none; say so and offer the way forward.
+    if (r.status === 'FAILED' && r.reasons.some(function (x) { return METRIC_PROBLEM.test(x); }) && actions && actions.rerunWithoutMetrics && r.source && actions.formShowsFile(r.source)) {
+      card.appendChild(h('p', { class: 'small', id: 'run-metrics-failed', text: t('The cleaned data is only written when every check passes, so nothing was written for this run. Running again without the metrics file gives you the cleaned data.') }));
+      card.appendChild(h('div', { class: 'btns' }, h('button', { type: 'button', class: 'primary', id: 'run-rerun-nometrics', text: t('Run again without metrics'), onclick: actions.rerunWithoutMetrics })));
+    }
     if (r.outputs && r.outputs.clean_csv && r.policy !== 'low') card.appendChild(h('p', { class: 'small muted', text: t('Do not edit and re-save clean.csv: its checksum is recorded in the audit log.') }));
     box.appendChild(card);
+    if (r.files.indexOf('clean.csv') >= 0 && RUN_ID_RE.test(r.run_id)) showPreview(box, r);
     Object.keys(r.metrics).forEach(function (name) {
       var m = r.metrics[name];
       var numeric = m.columns.map(function (cn, i) { return m.rows.length > 0 && m.rows.every(function (row) { return /^-?[0-9]+(\.[0-9]+)?$/.test(row[i]); }); });

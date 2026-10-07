@@ -10,6 +10,9 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -38,6 +41,7 @@ DOWNLOADS = {"clean.csv": "text/csv; charset=utf-8", "quarantine.csv": "text/csv
 MAX_LISTED = 300
 MAX_CONFIG_BYTES = 2_000_000
 MAX_METRIC_ROWS = 200
+PREVIEW_ROWS, PREVIEW_COLUMNS, PREVIEW_CELL = 20, 40, 80      # how much of the cleaned data the page shows: a taste, never the whole file
 
 
 def _kind_of_json(path):
@@ -63,8 +67,24 @@ def _rel_size(n):
     return f"{n / 1024 ** 2:.1f} MB" if n >= 1024 ** 2 else f"{max(1, n // 1024)} KB"
 
 
+def _open_in_file_manager(path):
+    """Show a folder in the system's file manager (Explorer, Finder, ...). OSError when this machine has none."""
+    if sys.platform == "win32":
+        os.startfile(str(path))                                 # only exists on Windows
+        return
+    if sys.platform == "darwin":
+        command = ["open", str(path)]
+    else:
+        tool = shutil.which("xdg-open")
+        if not tool:
+            raise OSError("no file manager is available")
+        command = [tool, str(path)]
+    child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    threading.Thread(target=child.wait, daemon=True).start()     # reaped when it ends, so no zombie and no warning
+
+
 class RunService:
-    def __init__(self, workdir, data_dirs=(), config_dirs=(), settings=None, chooser=None):
+    def __init__(self, workdir, data_dirs=(), config_dirs=(), settings=None, chooser=None, opener=None):
         self.workdir = Path(workdir).resolve()
         self.settings = settings or SettingsStore(self.workdir)
         self.data_dirs = [Path(d).resolve() for d in data_dirs]
@@ -72,6 +92,7 @@ class RunService:
         self._lock = threading.Lock()
         self._job = {"state": "idle"}
         self._chooser = chooser or filedialog.choose_file      # the native window; tests pass a stand-in
+        self._opener = opener or _open_in_file_manager         # shows a folder; tests pass a stand-in
         self._can_browse = filedialog.available() if chooser is None else True
         self._dialog_open = threading.Lock()
         self._picked = self._load_recent()                     # files the person chose from anywhere, oldest first (the last one is the newest)
@@ -273,6 +294,54 @@ class RunService:
                 "outputs": doc.get("outputs"), "metrics": metrics, "results_sha256": doc.get("results_sha256"),
                 "reconciliation": {"checks": recon.get("checks"), "mismatches": len(recon.get("mismatches") or [])},
                 "files": files, "folder": str(run)}
+
+    def preview(self, run_id):
+        """The first rows of the cleaned data, to look at on the page. Only the start of the file is read (it can be gigabytes), cells
+        and columns are cut to a sensible size, and the rows are exactly what is in clean.csv, so a masked column is masked here too."""
+        if not RUN_ID_RE.match(run_id or ""):
+            raise ApiError(404, "run not found")
+        run = self._runs_dir() / run_id
+        path = run / "clean.csv"
+        if path.is_symlink() or not path.is_file():
+            raise ApiError(404, "this run has no cleaned data")
+        try:
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                reader = csv.reader(fh)
+                header = next(reader, [])
+                rows = []
+                for row in reader:
+                    rows.append([c[:PREVIEW_CELL] for c in row[:PREVIEW_COLUMNS]])
+                    if len(rows) >= PREVIEW_ROWS:
+                        break
+        except (OSError, UnicodeError, csv.Error):
+            raise ApiError(409, "the cleaned data could not be read for a preview")
+        try:
+            total = int(((json.loads((run / "result.json").read_text(encoding="utf-8")).get("counts")) or {}).get("valid"))
+        except (OSError, ValueError, TypeError):
+            total = None
+        return {"columns": [c[:PREVIEW_CELL] for c in header[:PREVIEW_COLUMNS]], "rows": rows, "total_rows": total,
+                "all_columns": len(header), "policy": self._policy_of(run)}
+
+    @staticmethod
+    def _policy_of(run):
+        try:
+            return (json.loads((run / "result.json").read_text(encoding="utf-8")).get("policy") or {}).get("name")
+        except (OSError, ValueError):
+            return None
+
+    def open_folder(self, payload):
+        """Open a run's folder in the file manager. Takes a run id, never a path: the folder is always one of this app's own."""
+        run_id = payload.get("run") if isinstance(payload, dict) else None
+        if not isinstance(run_id, str) or not RUN_ID_RE.match(run_id):
+            raise ApiError(404, "run not found")
+        folder = self._runs_dir() / run_id
+        if folder.is_symlink() or not folder.is_dir():
+            raise ApiError(404, "run not found")
+        try:
+            self._opener(folder)
+        except OSError:
+            raise ApiError(409, "the folder could not be opened here; its path is shown on the page")
+        return {"opened": True}
 
     def download_path(self, run_id, name):
         if not RUN_ID_RE.match(run_id or "") or name not in DOWNLOADS:

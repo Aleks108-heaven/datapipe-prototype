@@ -288,6 +288,16 @@ UI = {
     "Run folder: {0}": "Папка запуску: {0}",
     "Do not edit and re-save clean.csv: its checksum is recorded in the audit log.":
         "Не редагуйте й не зберігайте повторно clean.csv: його контрольну суму записано в журнал аудиту.",
+    "Open the run folder": "Відкрити папку запуску",
+    "The folder is open. Look for it on your desktop, it may be behind this page.": "Папку відкрито. Пошукайте її на робочому столі, вона може бути за цією сторінкою.",
+    "The cleaned data is only written when every check passes, so nothing was written for this run. Running again without the metrics file gives you the cleaned data.":
+        "Очищені дані записуються лише тоді, коли проходять усі перевірки, тому для цього запуску нічого не записано. Повторний запуск без файлу метрик дасть вам очищені дані.",
+    "Run again without metrics": "Запустити ще раз без метрик",
+    "Preview of the cleaned data": "Попередній перегляд очищених даних",
+    "The first {0} of {1} rows of clean.csv; the file has all of them.": "Перші {0} із {1} рядків clean.csv; у файлі є всі.",
+    "The first {0} rows of clean.csv; the file has all of them.": "Перші {0} рядків clean.csv; у файлі є всі.",
+    "Personal columns are masked here exactly as in the file.": "Персональні стовпці тут замасковано так само, як у файлі.",
+    "Only the first {0} of {1} columns are shown.": "Показано лише перші {0} із {1} стовпців.",
     "Download this table (CSV)": "Завантажити цю таблицю (CSV)",
     "Showing the first {0} of {1} rows. The report file has all of them.": "Показано перші {0} із {1} рядків. У файлі звіту є всі.",
     "KB": "КБ",
@@ -479,6 +489,9 @@ SERVER = {
     "a file with this name exists but its content differs from the one the proposal was made from":
         "файл із такою назвою існує, але його вміст відрізняється від того, з якого створено пропозицію",
     "source file not available": "вихідний файл недоступний",
+    "this run has no cleaned data": "у цьому запуску немає очищених даних",
+    "the cleaned data could not be read for a preview": "очищені дані не вдалося прочитати для попереднього перегляду",
+    "the folder could not be opened here; its path is shown on the page": "тут не вдалося відкрити папку; її шлях показано на сторінці",
     # metrics
     "metric query failed: {0}": "помилка запиту метрики: {0}",
     "metric SQL does not parse: {0}": "SQL метрики не розбирається: {0}",
