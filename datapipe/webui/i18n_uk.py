@@ -241,8 +241,12 @@ UI = {
     "Paste the full path of a file (no file window is available here)": "Вставте повний шлях до файлу (вікно вибору файлу тут недоступне)",
     "Full path of a data, schema or metrics file": "Повний шлях до файлу даних, схеми або метрик",
     "Where the lists come from": "Звідки беруться списки",
-    "The lists show the files in these folders, plus any file you chose yourself (that choice lasts until you stop the app). Choosing never copies a file; the run reads it where it is.":
-        "У списках показано файли з цих папок і будь-який файл, який ви вибрали самі (цей вибір діє, доки ви не зупините програму). Вибір ніколи не копіює файл; запуск читає його там, де він лежить.",
+    "The lists show the files in these folders, plus the files you chose yourself: the app remembers the last {0}, newest first, even after you close it. Choosing never copies a file; the run reads it where it is.":
+        "У списках показано файли з цих папок і файли, які ви вибрали самі: програма пам’ятає останні {0} (найновіші першими) навіть після закриття. Вибір ніколи не копіює файл; запуск читає його там, де він лежить.",
+    "The list of chosen files is kept as paths in the work folder (recent-files.json). “Forget the files I chose” empties it; the files themselves are not touched.":
+        "Список вибраних файлів зберігається як шляхи в робочій папці (recent-files.json). Кнопка “Забути вибрані мною файли” очищає його; самі файли не змінюються.",
+    "Forget the files I chose": "Забути вибрані мною файли",
+    "Forgot {0} chosen file(s). The files themselves are untouched.": "Забуто вибраних файлів: {0}. Самі файли не змінено.",
     "You can also drop a file into the inbox folder inside the work folder, or start the app with another folder: python -m datapipe app --data-dir <folder> (repeat the option for several folders). Schema and metrics files are found in the same folders and in examples/.":
         "Також можна покласти файл у папку inbox усередині робочої папки або запустити програму з іншою папкою: python -m datapipe app --data-dir <папка> (параметр можна повторити для кількох папок). Файли схем і метрик шукаються в тих самих папках і в examples/.",
     "Refresh the lists": "Оновити списки",

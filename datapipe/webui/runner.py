@@ -8,7 +8,9 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
+import tempfile
 import threading
 import time
 import zipfile
@@ -25,7 +27,8 @@ from . import filedialog
 from .service import ApiError
 from .settings import SettingsStore
 
-MAX_PICKED = 50
+MAX_PICKED = 20                    # files the person chose from anywhere that the app remembers, newest first
+RECENT_FILE = "recent-files.json"  # in the work folder: just the paths, so the list is still there after a restart
 DATA_SUFFIXES = {".csv", ".tsv", ".jsonl", ".json", ".sql"}
 DOWNLOADS = {"clean.csv": "text/csv; charset=utf-8", "quarantine.csv": "text/csv; charset=utf-8",
              "report.md": "text/markdown; charset=utf-8", "result.json": "application/json; charset=utf-8",
@@ -69,21 +72,65 @@ class RunService:
         self._chooser = chooser or filedialog.choose_file      # the native window; tests pass a stand-in
         self._can_browse = filedialog.available() if chooser is None else True
         self._dialog_open = threading.Lock()
-        self._picked = []                                      # files the person chose from anywhere, this session
+        self._picked = self._load_recent()                     # files the person chose from anywhere, oldest first (the last one is the newest)
+
+    # ------------------------------------------------------------ the files the person chose, remembered between runs of the app
+    def _load_recent(self):
+        """The saved paths. A missing, damaged or hand-edited file means fewer paths, never an error. Whether a file still exists is
+        not decided here: a file on a USB stick that is not plugged in is hidden until it is back, and every listed file is checked
+        again by _scan like any other."""
+        try:
+            doc = json.loads((self.workdir / RECENT_FILE).read_text(encoding="utf-8"))
+            raw = doc["files"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
+        out = []
+        for entry in raw[:200] if isinstance(raw, list) else []:
+            if not isinstance(entry, str) or not entry or len(entry) > 1000 or "\0" in entry:
+                continue
+            path = Path(entry)
+            if path.is_absolute() and path.suffix.lower() in DATA_SUFFIXES and path not in out:
+                out.append(path)
+        return out[-MAX_PICKED:]
+
+    def _save_recent(self):
+        """Caller holds the lock. Written whole and replaced in one step, so a crash cannot leave half a file. Failing to save
+        costs only the memory between runs, so it is not an error for the person."""
+        try:
+            self.workdir.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=self.workdir, suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(json.dumps({"files": [str(p) for p in self._picked]}, indent=1) + "\n")
+                os.replace(tmp, self.workdir / RECENT_FILE)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+        except OSError:
+            pass
+
+    def forget_files(self, payload=None):
+        """Empty the list of chosen files. Only the list: the files themselves are not touched."""
+        with self._lock:
+            n = len(self._picked)
+            self._picked.clear()
+            self._save_recent()
+        return {"forgotten": n}
 
     # ------------------------------------------------------------ listing
     def _scan(self):
         data, schemas, analyses = [], [], []
         seen, count = set(), 0
 
-        def add(path, where, as_data):
+        def add(path, where, as_data, chosen=False):
             nonlocal count
             if path.is_symlink() or not path.is_file() or path.suffix.lower() not in DATA_SUFFIXES:
                 return
             count += 1
             st = path.stat()
             item = {"id": hashlib.sha256(str(path).encode()).hexdigest()[:16], "name": path.name, "where": where,
-                    "size": _rel_size(st.st_size), "bytes": st.st_size, "_path": path}
+                    "size": _rel_size(st.st_size), "bytes": st.st_size, "_path": path,
+                    "chosen": chosen, "folder": (path.parent.name or str(path.parent)) if chosen else ""}
             kind = _kind_of_json(path) if path.suffix.lower() == ".json" else None
             if kind == "schema":
                 schemas.append(item)
@@ -104,14 +151,17 @@ class RunService:
                     break
                 listed.add(path)
                 add(path, d.name or str(d), d in self.data_dirs)
-        for path in self._picked:                              # chosen by the person, possibly outside every folder above
+        with self._lock:
+            picked = list(reversed(self._picked))              # newest first
+        for path in picked:                                    # chosen by the person, possibly outside every folder above
             if path not in listed:
-                add(path, "chosen by you", True)
+                add(path, "chosen by you", True, chosen=True)
         return data, schemas, analyses
 
     @staticmethod
     def _public(items):
-        return [{"id": x["id"], "name": x["name"], "where": x["where"], "size": x["size"], "bytes": x["bytes"]} for x in items]
+        return [{"id": x["id"], "name": x["name"], "where": x["where"], "size": x["size"], "bytes": x["bytes"],
+                 "chosen": x["chosen"], "folder": x["folder"]} for x in items]
 
     def options(self):
         data, schemas, analyses = self._scan()
@@ -121,6 +171,7 @@ class RunService:
                               "needs_signoff": p.require_signoff, "max_memory_gb": round(p.max_memory_bytes / gb, 2)}
                              for p in POLICIES.values()],
                 "stream_above_mb": STREAM_AUTO_BYTES // 1024 ** 2, "can_browse": self._can_browse,
+                "chosen_count": len(self._picked), "max_chosen": MAX_PICKED,
                 "default_actor": default_actor(), "recent": self.recent(), "workdir": str(self.workdir),
                 "folders": [str(d) for d in self.data_dirs if d.is_dir()], "settings": self.settings.get()}
 
@@ -146,11 +197,14 @@ class RunService:
         if path.suffix.lower() not in DATA_SUFFIXES:
             raise ApiError(400, "only " + ", ".join(sorted(DATA_SUFFIXES)) + " files can be used")
         path = path.resolve()
+        if path.suffix.lower() == ".json" and _kind_of_json(path) == "proposal":
+            raise ApiError(400, "that file does not look like a data, schema or metrics file")
         with self._lock:
             if path in self._picked:
                 self._picked.remove(path)
-            self._picked.append(path)
+            self._picked.append(path)                          # the newest goes last
             del self._picked[:-MAX_PICKED]
+            self._save_recent()
         data, schemas, analyses = self._scan()
         for kind, items in (("file", data), ("schema", schemas), ("analysis", analyses)):
             item = next((x for x in items if x["_path"] == path), None)

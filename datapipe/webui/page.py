@@ -843,7 +843,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
       .catch(function (e) { if (seq === navSeq) showError(e); });
   }
 
-  function opt(item) { return h('option', { value: item.id, text: item.name + '  (' + unitText(item.size) + ', ' + (item.where === 'chosen by you' ? t('chosen by you') : item.where) + ')' }); }
+  function opt(item) { return h('option', { value: item.id, text: item.name + '  (' + unitText(item.size) + ', ' + (item.chosen ? t('chosen by you') + ' · ' + item.folder : item.where) + ')' }); }
   function field(label, id, control, hint) {
     return h('div', { class: 'runfield' }, h('label', { class: 'f', for: id, text: label }), control, hint ? h('div', { class: 'small muted', text: hint }) : null);
   }
@@ -865,6 +865,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var draft = h('button', { type: 'button', class: 'secondary small', id: 'run-draft', text: t('Draft a schema from the chosen file') });
     var sample = h('button', { type: 'button', class: 'secondary small', id: 'run-sample', text: t('Create a fake sample file to try') });
     var msg = h('div', { class: 'small', id: 'run-msg', role: 'status' });
+    if (runForm.flash) { msg.textContent = runForm.flash; runForm.flash = ''; }
     var policyNote = h('div', { class: 'small muted', id: 'policy-note' });
     var resultBox = h('div', { id: 'run-result' });
     [['file', files], ['schema', schemas], ['analysis', analyses], ['policy', policy]].forEach(function (x) {
@@ -982,10 +983,19 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     app.appendChild(resultBox);
 
     var addBox = h('details', { id: 'add-files', class: 'folds' }, h('summary', { text: t('Where the lists come from') }),
-      h('p', { class: 'small', text: t('The lists show the files in these folders, plus any file you chose yourself (that choice lasts until you stop the app). Choosing never copies a file; the run reads it where it is.') }),
+      h('p', { class: 'small', text: t('The lists show the files in these folders, plus the files you chose yourself: the app remembers the last {0}, newest first, even after you close it. Choosing never copies a file; the run reads it where it is.', o.max_chosen) }),
       h('ul', { class: 'small' }, (o.folders || []).map(function (f) { return h('li', { class: 'mono', text: f }); })),
       h('p', { class: 'small', text: t('You can also drop a file into the inbox folder inside the work folder, or start the app with another folder: python -m datapipe app --data-dir <folder> (repeat the option for several folders). Schema and metrics files are found in the same folders and in examples/.') }),
-      h('button', { type: 'button', class: 'secondary small', id: 'run-refresh', text: t('Refresh the lists'), onclick: function () { remember(); showRun(runId); } }));
+      h('p', { class: 'small muted', text: t('The list of chosen files is kept as paths in the work folder (recent-files.json). “Forget the files I chose” empties it; the files themselves are not touched.') }),
+      h('div', { class: 'btns' },
+        h('button', { type: 'button', class: 'secondary small', id: 'run-refresh', text: t('Refresh the lists'), onclick: function () { remember(); showRun(runId); } }),
+        h('button', { type: 'button', class: 'secondary small', id: 'run-forget', text: t('Forget the files I chose'), disabled: !o.chosen_count, onclick: function () {
+          api('/api/run/forget-files', { method: 'POST', body: {} }).then(function (res) {
+            runForm.file = ''; runForm.schema = ''; runForm.analysis = '';
+            runForm.flash = t('Forgot {0} chosen file(s). The files themselves are untouched.', res.forgotten);      // shown once the page is redrawn
+            showRun(runId);
+          }).catch(function (e) { msg.textContent = e.message; });
+        } })));
     app.appendChild(addBox);
 
     var recent = h('div', { class: 'card' }, h('h3', { text: t('Earlier runs') }));
