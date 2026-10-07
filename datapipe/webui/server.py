@@ -176,7 +176,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(404, "not found")
         if path == "/api/settings":
             return self._json(200, {"settings": self.server.settings.get(), "info": self.server.settings_info(),
-                                    "llm_key": self.server.settings.llm_key_status()})      # saved or not: never the key itself
+                                    "llm_key": self.server.settings.llm_key_status(),      # saved or not: never the key itself
+                                    "llm": self.server.settings.llm_connection()})
         from ..audit import AuditLog
         ok, n, msg = AuditLog(self.server.settings.path.parent / "audit.jsonl").verify()
         return self._json(200, {"ok": ok, "records": n, "message": msg})
@@ -252,6 +253,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"llm_key": self.server.settings.set_llm_key(payload)})
             if path == "/api/settings/llm-key/clear" and self.server.settings is not None:
                 return self._json(200, {"llm_key": self.server.settings.clear_llm_key()})
+            if path in ("/api/settings/llm", "/api/settings/llm/clear", "/api/settings/llm/check") and self.server.settings is not None:
+                store = self.server.settings
+                return self._json(200, {"/api/settings/llm": store.save_llm_connection, "/api/settings/llm/check": store.check_llm_connection,
+                                        "/api/settings/llm/clear": lambda _payload: store.clear_llm_connection()}[path](payload))
             if path in ("/api/run/start", "/api/run/draft-schema", "/api/run/check", "/api/run/sample", "/api/run/add-file") \
                     and self.server.runner is not None:
                 runner = self.server.runner

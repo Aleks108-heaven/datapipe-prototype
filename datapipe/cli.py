@@ -7,7 +7,7 @@ from pathlib import Path
 from .audit import AuditLog
 from .errors import DataPipeError
 from .ingest import read_source
-from .llm import AnthropicProvider, HeuristicProvider, OpenAICompatProvider
+from .llm import AnthropicProvider, HeuristicProvider, OpenAICompatProvider, connection
 from .mapping import approve_mapping, build_request, egress_mode, propose_mapping
 from .pipeline import run_pipeline, signoff
 from .policy import POLICIES, get_policy
@@ -190,8 +190,11 @@ def _cmd_map(args):
     if args.provider == "anthropic":
         provider = AnthropicProvider(model=args.model, base_url=args.base_url or "https://api.anthropic.com")
     elif args.provider == "openai-compat":
-        kw = {"base_url": args.base_url} if args.base_url else {}
-        provider = OpenAICompatProvider(model=args.model, **kw)
+        # an explicit option wins, then the environment variable, then the connection saved on the app's Settings page
+        saved = connection.load()
+        base_url = args.base_url or saved["base_url"]
+        kw = {"base_url": base_url} if base_url else {}
+        provider = OpenAICompatProvider(model=args.model or os.environ.get("DATAPIPE_LLM_MODEL") or saved["model"], **kw)
     else:
         provider = HeuristicProvider()
     mode = egress_mode(policy, provider)          # raises if the policy forbids this provider

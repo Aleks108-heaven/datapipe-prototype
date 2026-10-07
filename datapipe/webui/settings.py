@@ -9,7 +9,8 @@ import threading
 from pathlib import Path
 
 from ..identity import clean_name
-from ..llm import keystore
+from ..llm import connection, keystore
+from ..llm.providers import locality_of
 from ..policy import POLICIES
 from .service import ApiError
 
@@ -94,6 +95,45 @@ class SettingsStore:
         except OSError:
             raise ApiError(500, "the saved key could not be removed")
         return keystore.status()
+
+    # The saved model-server connection (address + model name): per user, like the key, but nothing secret in it.
+    @staticmethod
+    def llm_connection():
+        return {"connection": connection.describe(connection.load()), "presets": connection.PRESETS}
+
+    @staticmethod
+    def _llm_fields(payload):
+        if not isinstance(payload, dict):
+            raise ApiError(400, "invalid request")
+        try:
+            return connection.check_url(payload.get("base_url")), connection.check_model(payload.get("model"))
+        except ValueError as exc:
+            raise ApiError(400, str(exc))
+
+    def save_llm_connection(self, payload):
+        """A server that is not on this computer (or a model that runs remotely) needs an explicit yes first: the reply says so
+        instead of saving, and the page asks again with confirm_remote."""
+        url, model = self._llm_fields(payload)
+        locality, _ = locality_of(url, model)
+        if locality == "cloud" and payload.get("confirm_remote") is not True:
+            return {"saved": False, "needs_confirmation": True, "connection": connection.describe({"base_url": url, "model": model})}
+        try:
+            saved = connection.save(url, model)
+        except OSError:
+            raise ApiError(500, "the connection could not be saved (is the per-user folder writable?)")
+        return {"saved": True, "needs_confirmation": False, "connection": connection.describe(saved)}
+
+    @staticmethod
+    def clear_llm_connection():
+        try:
+            connection.clear()
+        except OSError:
+            raise ApiError(500, "the saved connection could not be removed")
+        return {"connection": connection.describe(connection.load())}
+
+    def check_llm_connection(self, payload):
+        url, model = self._llm_fields(payload)
+        return connection.list_models(url, model)
 
     def update(self, payload):
         new = validate(payload)

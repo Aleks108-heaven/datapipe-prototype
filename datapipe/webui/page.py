@@ -1056,11 +1056,11 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var seq = ++navSeq;
     clear(app);
     app.appendChild(h('p', { class: 'muted', text: 'Loading…' }));
-    api('/api/settings').then(function (d) { if (seq === navSeq) buildSettings(d.settings, d.info, d.llm_key); })
+    api('/api/settings').then(function (d) { if (seq === navSeq) buildSettings(d.settings, d.info, d.llm_key, d.llm); })
       .catch(function (e) { if (seq === navSeq) showError(e); });
   }
 
-  function buildSettings(s, info, llmKey) {
+  function buildSettings(s, info, llmKey, llm) {
     clear(app);
     var heading = h('h2', { text: 'Settings' });
     app.appendChild(heading);
@@ -1104,6 +1104,103 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         field('Appearance', 'set-theme', theme)),
       limitHint, h('div', { class: 'btns' }, save), msg));
 
+    // ---- Language model: which server and model, whether it answers, and where the data would go.
+    var conn = llm.connection, presets = llm.presets;
+    var preset = h('select', { id: 'set-llm-preset' }, presets.map(function (p) { return h('option', { value: p.id, text: p.name + '  (' + p.base_url + ')' }); }),
+      h('option', { value: 'other', text: 'Another server (type the address)' }));
+    var llmUrl = h('input', { id: 'set-llm-url', type: 'text', maxlength: '300', autocomplete: 'off', spellcheck: 'false', placeholder: presets[0].base_url });
+    var llmModel = h('input', { id: 'set-llm-model', type: 'text', maxlength: '200', autocomplete: 'off', spellcheck: 'false', list: 'set-llm-models', placeholder: 'For example llama3.2' });
+    var modelList = h('datalist', { id: 'set-llm-models' });
+    var llmWhere = h('div', { class: 'small', id: 'set-llm-where' });
+    var llmState = h('div', { class: 'small', id: 'set-llm-state', role: 'status' });
+    var llmSaved = h('div', { class: 'small muted', id: 'set-llm-saved' });
+    var llmMsg = h('div', { class: 'small', id: 'set-llm-msg', role: 'status' });
+    var llmConfirm = h('div', { class: 'small', id: 'set-llm-confirm', role: 'alert' });
+    var llmCheck = h('button', { type: 'button', class: 'secondary', id: 'set-llm-check', text: 'Check connection and find models' });
+    var llmSave = h('button', { type: 'button', class: 'primary', id: 'set-llm-save', text: 'Save connection' });
+    var llmForget = h('button', { type: 'button', class: 'secondary', id: 'set-llm-clear', text: 'Forget connection' });
+    function hostIsHere(u) {                                              // advisory only: the server decides when it saves
+      try { var host = new URL(u).hostname.toLowerCase(); return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1'; } catch (e) { return null; }
+    }
+    function showWhere(local) {                                            // never colour alone: a symbol and words as well
+      clear(llmWhere);
+      if (local === null || local === undefined) return;
+      llmWhere.className = 'small ' + (local ? 'ok-note' : 'warn-note');
+      llmWhere.textContent = local
+        ? '● Runs on this computer: nothing leaves it.'
+        : '⚠ Remote server or cloud model: the column names and a summary of the value patterns are sent to it. Run the map command with --dry-run to see exactly what.';
+    }
+    function liveWhere() {
+      var here = hostIsHere(llmUrl.value.trim());
+      showWhere(here === null ? null : (here && !/(^|[:\-_\/])cloud$/i.test(llmModel.value.trim())));
+    }
+    function showSaved(c) {
+      llmSaved.textContent = c.base_url
+        ? 'Saved: ' + c.base_url + (c.model ? ', model ' + c.model : ', no model chosen yet') + '. The map command uses this when you give no address or model.'
+        : 'Nothing saved yet. The map command then uses the built-in offline matcher, or the address you give it.';
+    }
+    function matchPreset() {
+      var hit = presets.filter(function (p) { return p.base_url === llmUrl.value.trim().replace(/\/+$/, ''); })[0];
+      preset.value = hit ? hit.id : 'other';
+    }
+    llmUrl.value = conn.base_url || presets[0].base_url; llmModel.value = conn.model || '';
+    matchPreset(); liveWhere(); showSaved(conn);
+    preset.addEventListener('change', function () {
+      var p = presets.filter(function (x) { return x.id === preset.value; })[0];
+      if (p) llmUrl.value = p.base_url; else { llmUrl.value = ''; llmUrl.focus(); }
+      clear(llmConfirm); liveWhere();
+    });
+    llmUrl.addEventListener('input', function () { matchPreset(); clear(llmConfirm); liveWhere(); });
+    llmModel.addEventListener('input', function () { clear(llmConfirm); liveWhere(); });
+    function llmBusy(on) { llmCheck.disabled = on; llmSave.disabled = on; llmForget.disabled = on; }
+    llmCheck.addEventListener('click', function () {
+      llmBusy(true); clear(llmConfirm); llmMsg.textContent = ''; llmState.className = 'small'; llmState.textContent = 'Checking…';
+      api('/api/settings/llm/check', { method: 'POST', body: { base_url: llmUrl.value, model: llmModel.value } }).then(function (r) {
+        var good = r.state === 'ok';
+        llmState.className = 'small ' + (good ? 'ok-note' : 'warn-note');
+        llmState.textContent = (good ? '✓ ' : '✗ ') + r.message + (good ? ' (answered in ' + r.ms + ' ms)' : '');
+        showWhere(r.locality === 'local');
+        clear(modelList);
+        r.models.forEach(function (m) { modelList.appendChild(h('option', { value: m })); });
+        var wanted = llmModel.value.trim();
+        if (good && !wanted && r.models.length === 1) llmModel.value = r.models[0];
+        else if (good && wanted && r.models.indexOf(wanted) < 0) llmState.textContent += ' The model “' + wanted + '” is not one of them.';
+        else if (good && !wanted) llmState.textContent += ' Click the Model box to pick one.';
+      }).catch(function (e) { llmState.className = 'small warn-note'; llmState.textContent = '✗ ' + e.message; })
+        .then(function () { llmBusy(false); });
+    });
+    function saveConnection(confirmed) {
+      llmBusy(true); llmMsg.textContent = 'Saving…'; clear(llmConfirm);
+      api('/api/settings/llm', { method: 'POST', body: { base_url: llmUrl.value, model: llmModel.value, confirm_remote: confirmed } }).then(function (res) {
+        if (res.needs_confirmation) {
+          llmMsg.textContent = '';
+          showWhere(false);
+          llmConfirm.appendChild(h('p', { text: 'This is not a model on your computer. Saving it means that mapping columns will send the column names and value patterns to that server. Do you want to save it anyway?' }));
+          llmConfirm.appendChild(h('div', { class: 'btns' },
+            h('button', { type: 'button', class: 'primary', id: 'set-llm-confirm-yes', text: 'Yes, save this remote server', onclick: function () { saveConnection(true); } }),
+            h('button', { type: 'button', class: 'secondary', id: 'set-llm-confirm-no', text: 'Cancel', onclick: function () { clear(llmConfirm); } })));
+          return;
+        }
+        llmMsg.textContent = 'Connection saved.';
+        showSaved(res.connection); showWhere(res.connection.locality === 'local');
+      }).catch(function (e) { llmMsg.textContent = e.message; })
+        .then(function () { llmBusy(false); });
+    }
+    llmSave.addEventListener('click', function () { saveConnection(false); });
+    llmForget.addEventListener('click', function () {
+      llmBusy(true); clear(llmConfirm);
+      api('/api/settings/llm/clear', { method: 'POST', body: {} }).then(function (res) { llmMsg.textContent = 'Saved connection removed.'; showSaved(res.connection); })
+        .catch(function (e) { llmMsg.textContent = e.message; }).then(function () { llmBusy(false); });
+    });
+    app.appendChild(h('div', { class: 'card', id: 'set-llm-card' }, h('h3', { text: 'Language model (optional)' }),
+      h('p', { class: 'small muted', text: 'Used when you map a new file’s columns with a model instead of the built-in offline matcher (the map command with --provider openai-compat). The Run tab does not use it. Pick the program that serves your model, check that it answers, and choose a model from its list.' }),
+      h('div', { class: 'runfields' },
+        field('Model server', 'set-llm-preset', preset),
+        field('Address', 'set-llm-url', llmUrl, 'Usually ends with /v1. Plain http works only for this computer; anything else must use https.'),
+        field('Model', 'set-llm-model', llmModel, 'Check the connection to fill this list.'), modelList),
+      llmWhere, llmState, llmConfirm,
+      h('div', { class: 'btns' }, llmCheck, llmSave, llmForget), llmMsg, llmSaved));
+
     // The model key is write-only: the page can save or remove it but the server never sends it back.
     var keyInput = h('input', { id: 'set-llmkey', type: 'password', maxlength: '512', autocomplete: 'off', spellcheck: 'false' });
     var keyState = h('div', { class: 'small', id: 'set-llmkey-state', role: 'status' });
@@ -1128,11 +1225,12 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     }
     keySave.addEventListener('click', function () { keyCall('/api/settings/llm-key', { key: keyInput.value }, 'Key saved.', true); });
     keyClear.addEventListener('click', function () { keyCall('/api/settings/llm-key/clear', {}, 'Saved key removed.', false); });
-    app.appendChild(h('div', { class: 'card' }, h('h3', { text: 'Language model key (optional)' }),
-      h('p', { class: 'small muted', text: 'Only needed to map columns with a model server that asks for a key, such as LM Studio or a hosted service ' +
-        '(datapipe map --provider openai-compat). The Run tab does not use it.' }),
-      h('p', { class: 'small muted', text: 'Stored as plain text in your own user folder, not in the work folder. It is sent only to the server you give ' +
-        'with --base-url, so save one only for a server you trust. It is never shown again; to change it, paste a new one.' }),
+    app.appendChild(h('div', { class: 'card' }, h('h3', { text: 'Key for the model server (optional)' }),
+      h('p', { class: 'small muted', text: 'Only needed when the server above asks for a key, such as a hosted service or LM Studio with a key switched on. ' +
+        'Ollama on this computer needs none.' }),
+      h('p', { class: 'small muted', text: 'Stored as plain text in your own user folder, not in the work folder. It is sent to the server address above ' +
+        '(when you check the connection) and to the address you give the map command, so save one only for a server you trust. ' +
+        'It is never shown again; to change it, paste a new one.' }),
       h('div', { class: 'runfields' }, field('API key', 'set-llmkey', keyInput)),
       keyState, h('div', { class: 'btns' }, keySave, keyClear), keyMsg));
 

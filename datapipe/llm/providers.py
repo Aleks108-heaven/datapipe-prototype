@@ -41,6 +41,15 @@ def _check_base_url(base_url):
     raise ProviderError("the LLM base URL must use https (plain http is accepted only for localhost / 127.0.0.1)")
 
 
+def locality_of(base_url, model):
+    """('local' | 'cloud', url_is_on_this_machine). Ollama (and similar) can proxy a model whose name ends in "cloud"
+    (e.g. "gpt-oss:120b-cloud") to a remote service while the URL stays localhost: that is cloud egress, so it must not be
+    recorded as "nothing left the machine"."""
+    on_this_machine = _check_base_url(base_url) in _LOOPBACK
+    proxies_to_cloud = re.search(r"(^|[:\-_/])cloud$", (model or "").lower()) is not None
+    return ("local" if on_this_machine and not proxies_to_cloud else "cloud"), on_this_machine
+
+
 @dataclass
 class ProviderResult:
     mappings: list                      # [{"source","target","confidence","rationale"}]
@@ -156,12 +165,7 @@ class OpenAICompatProvider(LLMProvider):
         if not self.model:
             raise ProviderError("no model configured: pass --model or set DATAPIPE_LLM_MODEL")
         self.base_url = base_url.rstrip("/")
-        host = _check_base_url(self.base_url)
-        on_this_machine = host in _LOOPBACK
-        # Ollama (and similar) can proxy a model whose name ends in "cloud" (e.g. "gpt-oss:120b-cloud") to a remote service
-        # while the URL stays localhost: that is cloud egress, so it must not be recorded as "nothing left the machine".
-        proxies_to_cloud = re.search(r"(^|[:\-_/])cloud$", self.model.lower()) is not None
-        self.locality = "local" if on_this_machine and not proxies_to_cloud else "cloud"
+        self.locality, on_this_machine = locality_of(self.base_url, self.model)
         if not on_this_machine and not self.api_key:
             raise ProviderError("no API key (needed for a non-local endpoint): save one on the app's Settings page "
                                 "or set DATAPIPE_LLM_API_KEY")
