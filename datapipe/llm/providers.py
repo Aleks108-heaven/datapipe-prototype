@@ -50,6 +50,15 @@ def locality_of(base_url, model):
     return ("local" if on_this_machine and not proxies_to_cloud else "cloud"), on_this_machine
 
 
+def _discard(err):
+    """Close the response an HTTPError still holds when we are not going to read it. Its socket and temporary file would otherwise wait
+    for garbage collection, which Python 3.14 reports as a ResourceWarning (and an app that keeps running should not leave handles around)."""
+    try:
+        err.close()
+    except Exception:                                  # an HTTPError built without a response has nothing to close
+        pass
+
+
 @dataclass
 class ProviderResult:
     mappings: list                      # [{"source","target","confidence","rationale"}]
@@ -139,6 +148,7 @@ class AnthropicProvider(LLMProvider):
             with _OPENER.open(req, timeout=self.timeout) as resp:
                 raw = resp.read(2_000_000)
         except urllib.error.HTTPError as exc:
+            _discard(exc)
             raise ProviderError(f"LLM API returned HTTP {exc.code}")
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
             raise ProviderError(f"LLM API request failed ({type(exc).__name__})")
@@ -200,9 +210,11 @@ class OpenAICompatProvider(LLMProvider):
             except urllib.error.HTTPError as exc:
                 if exc.code not in (400, 422):
                     raise
+                _discard(exc)
                 del payload["response_format"]                   # this server does not support constrained output: ask once more
                 raw = self._post(payload)
         except urllib.error.HTTPError as exc:
+            _discard(exc)
             hint = (" - the server rejected the API key: save a valid one on the app's Settings page or set DATAPIPE_LLM_API_KEY"
                     if exc.code in (401, 403) else "")
             raise ProviderError(f"LLM API returned HTTP {exc.code}{hint}")

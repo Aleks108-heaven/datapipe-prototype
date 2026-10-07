@@ -46,6 +46,11 @@ AWKWARD = [
 ]
 
 
+def _clean_rows(run_dir):
+    with open(run_dir / "clean.csv", encoding="utf-8", newline="") as fh:          # closed again: Python 3.14 reports a file left to the garbage collector
+        return list(csv.reader(fh))
+
+
 def _rows(data):
     return [{"_row": n, "i": i, "s": s, "a": a, "d": d, "b": b} for n, (i, s, a, d, b) in enumerate(data, 1)]
 
@@ -180,7 +185,7 @@ def test_clean_csv_has_exactly_the_valid_rows_and_its_hash_is_recorded(tmp_path)
                        analysis_path=ANALYSIS, actor="alice")
     assert res.status == "COMPLETED_WITH_WARNINGS"
     out = res.document["outputs"]["clean_csv"]
-    rows = list(csv.reader(open(res.run_dir / "clean.csv", encoding="utf-8", newline="")))
+    rows = _clean_rows(res.run_dir)
     assert rows[0] == ["order_id", "customer_email", "region", "amount", "order_date", "paid"]
     assert [r[0] for r in rows[1:]] == ["1001", "1008"] and out["rows"] == 2
     assert rows[1] == ["1001", "anna@example.com", "EU", "120.50", "2026-01-05", "true"]
@@ -208,9 +213,9 @@ def test_spreadsheet_formulas_are_neutralised_but_numbers_and_phones_are_not(tmp
     values = ["=1+1", "@SUM(A1)", "+cmd|x", "-1+2", "+49 (0) 30-1234", "-12", "plain"]
     body = "t,n\n" + "\n".join(f'"{v}",-5' for v in values) + "\n"
     res = run_pipeline(write("f.csv", body), workdir=tmp_path / "w", policy_name="low", schema_path=sch, actor="a")
-    got = [r[0] for r in list(csv.reader(open(res.run_dir / "clean.csv", encoding="utf-8", newline="")))[1:]]
+    got = [r[0] for r in _clean_rows(res.run_dir)[1:]]
     assert got == ["'=1+1", "'@SUM(A1)", "'+cmd|x", "'-1+2", "+49 (0) 30-1234", "-12", "plain"]
-    assert all(r[1] == "-5" for r in list(csv.reader(open(res.run_dir / "clean.csv", encoding="utf-8", newline="")))[1:])
+    assert all(r[1] == "-5" for r in _clean_rows(res.run_dir)[1:])
 
 
 def test_signoff_refuses_a_cleaned_file_that_was_edited(tmp_path):

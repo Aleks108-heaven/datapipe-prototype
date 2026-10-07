@@ -48,6 +48,7 @@ def redirecting_endpoint(monkeypatch):
     yield f"http://127.0.0.1:{redirector.server_port}", seen
     for s in (thief, redirector):
         s.shutdown()
+        s.server_close()                            # release the listening sockets too (Python 3.14 reports them otherwise)
 
 
 def test_a_redirect_never_carries_the_api_key_to_another_host(redirecting_endpoint):

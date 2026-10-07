@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 
 from . import keystore
-from .providers import _OPENER, ProviderError, _check_base_url, locality_of
+from .providers import _OPENER, ProviderError, _check_base_url, _discard, locality_of
 
 PRESETS = [
     {"id": "ollama", "name": "Ollama", "base_url": "http://127.0.0.1:11434/v1"},
@@ -129,6 +129,7 @@ def list_models(base_url, model=None):
         with _OPENER.open(urllib.request.Request(url + "/models", headers=headers), timeout=CHECK_TIMEOUT) as resp:
             raw = resp.read(1_000_000)
     except urllib.error.HTTPError as exc:
+        _discard(exc)
         if exc.code in (401, 403):
             return result("needs_key", "The server asked for a key (HTTP %d). Save the key below, then check again." % exc.code)
         if exc.code == 404:

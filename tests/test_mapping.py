@@ -251,6 +251,7 @@ class FakeAPI:
 
     def close(self):
         self.server.shutdown()
+        self.server.server_close()                  # shutdown() stops the loop; this releases the listening socket
 
 
 @pytest.fixture
