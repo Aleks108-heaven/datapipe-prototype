@@ -22,7 +22,7 @@ Check it: `python -m datapipe policies` prints three lines.
 
 **Or from a terminal:** `python -m datapipe app`
 
-Your browser opens the app. Put your data files in **`~/datapipe/files`** (Windows: `C:\Users\<you>\datapipe\files`; the launcher creates it). Results are written to `~/datapipe/work`. The page's *Add your own files* section lists exactly which folders it reads.
+Your browser opens the app. Put your data files in **`~/datapipe/files`** (Windows: `C:\Users\<you>\datapipe\files`; the launcher creates it). Results are written to `~/datapipe/work`. For a file anywhere else, press *Choose a file on this computer…* on the Run page; the page's *Where the lists come from* section lists the folders it always reads.
 
 You also need a **schema** for each kind of file (what every column should look like). In the app: choose the file, then *Draft a schema from the chosen file*, review the draft, and pick it. Examples are in the repository's `examples/` folder.
 

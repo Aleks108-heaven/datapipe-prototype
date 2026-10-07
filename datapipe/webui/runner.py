@@ -18,12 +18,14 @@ from ..errors import DataPipeError
 from ..identity import clean_name
 from ..ingest import read_source
 from ..audit import default_actor
-from ..pipeline import RUN_ID_RE, _formula_risk, run_pipeline
+from ..pipeline import RUN_ID_RE, STREAM_AUTO_BYTES, _formula_risk, run_pipeline
 from ..policy import POLICIES, get_policy
 from ..schema import infer_schema, load_schema
+from . import filedialog
 from .service import ApiError
 from .settings import SettingsStore
 
+MAX_PICKED = 50
 DATA_SUFFIXES = {".csv", ".tsv", ".jsonl", ".json", ".sql"}
 DOWNLOADS = {"clean.csv": "text/csv; charset=utf-8", "quarantine.csv": "text/csv; charset=utf-8",
              "report.md": "text/markdown; charset=utf-8", "result.json": "application/json; charset=utf-8",
@@ -57,52 +59,117 @@ def _rel_size(n):
 
 
 class RunService:
-    def __init__(self, workdir, data_dirs=(), config_dirs=(), settings=None):
+    def __init__(self, workdir, data_dirs=(), config_dirs=(), settings=None, chooser=None):
         self.workdir = Path(workdir).resolve()
         self.settings = settings or SettingsStore(self.workdir)
         self.data_dirs = [Path(d).resolve() for d in data_dirs]
         self.config_dirs = [self.workdir / "schemas"] + [Path(d).resolve() for d in list(config_dirs) + list(data_dirs)]
         self._lock = threading.Lock()
         self._job = {"state": "idle"}
+        self._chooser = chooser or filedialog.choose_file      # the native window; tests pass a stand-in
+        self._can_browse = filedialog.available() if chooser is None else True
+        self._dialog_open = threading.Lock()
+        self._picked = []                                      # files the person chose from anywhere, this session
 
     # ------------------------------------------------------------ listing
     def _scan(self):
         data, schemas, analyses = [], [], []
         seen, count = set(), 0
-        for i, d in enumerate(self.config_dirs + self.data_dirs):
+
+        def add(path, where, as_data):
+            nonlocal count
+            if path.is_symlink() or not path.is_file() or path.suffix.lower() not in DATA_SUFFIXES:
+                return
+            count += 1
+            st = path.stat()
+            item = {"id": hashlib.sha256(str(path).encode()).hexdigest()[:16], "name": path.name, "where": where,
+                    "size": _rel_size(st.st_size), "bytes": st.st_size, "_path": path}
+            kind = _kind_of_json(path) if path.suffix.lower() == ".json" else None
+            if kind == "schema":
+                schemas.append(item)
+            elif kind == "analysis":
+                analyses.append(item)
+            elif kind == "proposal":
+                return
+            elif as_data:
+                data.append(item)
+
+        listed = set()
+        for d in self.config_dirs + self.data_dirs:
             if not d.is_dir() or d in seen:
                 continue
             seen.add(d)
             for path in sorted(d.iterdir()):
                 if count >= MAX_LISTED:
                     break
-                if path.is_symlink() or not path.is_file() or path.suffix.lower() not in DATA_SUFFIXES:
-                    continue
-                count += 1
-                item = {"id": hashlib.sha256(str(path).encode()).hexdigest()[:16], "name": path.name, "where": d.name or str(d),
-                        "size": _rel_size(path.stat().st_size), "_path": path}
-                kind = _kind_of_json(path) if path.suffix.lower() == ".json" else None
-                if kind == "schema":
-                    schemas.append(item)
-                elif kind == "analysis":
-                    analyses.append(item)
-                elif kind == "proposal":
-                    continue
-                elif d in self.data_dirs:
-                    data.append(item)
+                listed.add(path)
+                add(path, d.name or str(d), d in self.data_dirs)
+        for path in self._picked:                              # chosen by the person, possibly outside every folder above
+            if path not in listed:
+                add(path, "chosen by you", True)
         return data, schemas, analyses
 
     @staticmethod
     def _public(items):
-        return [{"id": x["id"], "name": x["name"], "where": x["where"], "size": x["size"]} for x in items]
+        return [{"id": x["id"], "name": x["name"], "where": x["where"], "size": x["size"], "bytes": x["bytes"]} for x in items]
 
     def options(self):
         data, schemas, analyses = self._scan()
+        gb = 1024 ** 3
         return {"files": self._public(data), "schemas": self._public(schemas), "analyses": self._public(analyses),
                 "policies": [{"name": p.name, "max_file_mb": p.max_file_bytes // 1024 ** 2, "mask_pii": p.mask_pii,
-                              "needs_signoff": p.require_signoff} for p in POLICIES.values()],
+                              "needs_signoff": p.require_signoff, "max_memory_gb": round(p.max_memory_bytes / gb, 2)}
+                             for p in POLICIES.values()],
+                "stream_above_mb": STREAM_AUTO_BYTES // 1024 ** 2, "can_browse": self._can_browse,
                 "default_actor": default_actor(), "recent": self.recent(), "workdir": str(self.workdir),
                 "folders": [str(d) for d in self.data_dirs if d.is_dir()], "settings": self.settings.get()}
+
+    # ------------------------------------------------------------ a file from anywhere on this computer
+    def add_file(self, payload):
+        """Add one file the person points at. Either a typed/pasted full path, or (no path given) the native file window.
+        The file then gets an id like every other listed file; running still takes only ids, never a path."""
+        if not isinstance(payload, dict):
+            raise ApiError(400, "invalid request")
+        typed = payload.get("path")
+        if typed is None:
+            path = self._ask_window()
+            if path is None:
+                return {"added": None}                         # cancelled: not an error
+        else:
+            if not isinstance(typed, str) or not typed.strip() or len(typed) > 1000 or "\0" in typed:
+                raise ApiError(400, "type or paste the full path of a file")
+            path = Path(typed.strip().strip('"'))
+        if not path.is_absolute():
+            raise ApiError(400, "use the full path, starting with the drive letter (for example C:\\Users\\you\\file.csv)")
+        if path.is_symlink() or not path.is_file():
+            raise ApiError(400, "that is not a regular file on this computer")
+        if path.suffix.lower() not in DATA_SUFFIXES:
+            raise ApiError(400, "only " + ", ".join(sorted(DATA_SUFFIXES)) + " files can be used")
+        path = path.resolve()
+        with self._lock:
+            if path in self._picked:
+                self._picked.remove(path)
+            self._picked.append(path)
+            del self._picked[:-MAX_PICKED]
+        data, schemas, analyses = self._scan()
+        for kind, items in (("file", data), ("schema", schemas), ("analysis", analyses)):
+            item = next((x for x in items if x["_path"] == path), None)
+            if item:
+                return {"added": {"kind": kind, "id": item["id"], "name": item["name"]}}
+        raise ApiError(400, "that file does not look like a data, schema or metrics file")
+
+    def _ask_window(self):
+        if not self._can_browse:
+            raise ApiError(409, "no file window is available on this computer; paste the full path instead")
+        if not self._dialog_open.acquire(blocking=False):
+            raise ApiError(409, "a file window is already open; look for it behind this page")
+        try:
+            return self._chooser()
+        except filedialog.DialogUnavailable as exc:
+            self._can_browse = False
+            raise ApiError(409, str(exc))
+        finally:
+            self._dialog_open.release()
 
     @staticmethod
     def _pick(items, ident, what):

@@ -821,12 +821,65 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     function remember() { runForm.file = files.value; runForm.schema = schemas.value; runForm.analysis = analyses.value; runForm.policy = policy.value; runForm.actor = actor.value; }
     var fit = h('div', { class: 'small', id: 'run-fit', role: 'status' });
     var fitSeq = 0;
+    var why = h('div', { class: 'small muted', id: 'run-why' });
+    var size = h('div', { class: 'small', id: 'run-size', role: 'status' });
+    go.setAttribute('aria-describedby', 'run-why');
+    // Roughly what loading the chosen file whole needs, against the limit that applies (Settings first, else the policy's).
+    function sizeNote() {
+      clear(size);
+      size.className = 'small';
+      var item = o.files.filter(function (f) { return f.id === files.value; })[0];
+      if (!item) return;
+      var mb = item.bytes / 1048576;
+      var pol = o.policies.filter(function (p) { return p.name === policy.value; })[0] || {};
+      var limitGb = st.max_memory_gb || pol.max_memory_gb;
+      var table = /\.(csv|tsv)$/i.test(item.name);
+      if (table && mb > o.stream_above_mb) {
+        size.textContent = item.size + ': a file this big is read in pieces, so memory stays flat (it needs free disk space for the work files).';
+        return;
+      }
+      var needGb = item.bytes * 25 / 1073741824;
+      var fmt = function (g) { return g >= 0.1 ? g.toFixed(1) : g.toFixed(2); };
+      if (limitGb && needGb > limitGb) {
+        size.className = 'small warn-note';
+        size.textContent = '⚠ ' + item.size + ': loading it needs roughly ' + fmt(needGb) + ' GB of memory, and the limit is ' + limitGb + ' GB, so the run will probably be refused. Raise the memory limit in Settings (only if this computer has that much free RAM).';
+      } else {
+        size.className = 'small muted';
+        size.textContent = item.size + ': needs roughly ' + fmt(needGb) + ' GB of memory' + (limitGb ? ' (limit ' + limitGb + ' GB).' : '.');
+      }
+    }
     function refresh() {
       remember();
       policyNote.textContent = (POLICY_TEXT[policy.value] || '') + (st.max_file_mb ? ' Your Settings limit files to ' + st.max_file_mb + ' MB.' : '') + (st.max_memory_gb ? ' Memory limit from Settings: ' + st.max_memory_gb + ' GB.' : '');
-      go.disabled = !(files.value && schemas.value && actor.value.trim());
+      var missing = [];
+      if (!files.value) missing.push('a data file');
+      if (!schemas.value) missing.push('a schema');
+      if (!actor.value.trim()) missing.push('your name');
+      go.disabled = missing.length > 0;
+      why.textContent = missing.length ? 'To run, choose ' + missing.join(', ').replace(/, ([^,]*)$/, ' and $1') + '.' : '';
       draft.disabled = !files.value;
+      sizeNote();
     }
+    // A file from anywhere on this computer: the program opens the system file window itself (the browser cannot show real paths).
+    function added(res) {
+      if (!res.added) { msg.textContent = 'No file chosen.'; return; }
+      var slot = { file: 'file', schema: 'schema', analysis: 'analysis' }[res.added.kind];
+      runForm[slot] = res.added.id;
+      if (slot === 'file') { runForm.schema = ''; runForm.analysis = ''; }
+      showRun(runId);
+    }
+    var browse = h('button', { type: 'button', class: 'secondary', id: 'run-browse', text: 'Choose a file on this computer…' });
+    var pathBox = h('input', { id: 'run-path', type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'C:\\Users\\you\\Documents\\data.csv' });
+    var pathGo = h('button', { type: 'button', class: 'secondary small', id: 'run-path-go', text: 'Use this file' });
+    function addFile(body, button) {
+      button.disabled = true; msg.textContent = body.path === undefined ? 'The file window is open. Look for it on your desktop, it may be behind this page.' : 'Checking the file…';
+      remember();
+      api('/api/run/add-file', { method: 'POST', body: body }).then(added)
+        .catch(function (e) { msg.textContent = e.message; button.disabled = false; });
+    }
+    browse.addEventListener('click', function () { addFile({}, browse); });
+    pathGo.addEventListener('click', function () { addFile({ path: pathBox.value }, pathGo); });
+    pathBox.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); pathGo.click(); } });
     // Before anything runs: does the chosen schema describe this file? If not, say so and offer the schema that does.
     function checkFit() {
       var mine = ++fitSeq;
@@ -861,20 +914,24 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     [files, schemas, analyses, policy].forEach(function (c) { c.addEventListener('change', refresh); });
     actor.addEventListener('input', refresh);
 
+    var dataField = field('Data file', 'run-file', files, o.files.length ? 'Not in the list? Choose it from anywhere on this computer.' : 'Nothing in the list yet. Choose a file from anywhere on this computer.');
+    if (o.can_browse) dataField.appendChild(h('div', { class: 'btns' }, browse));
     app.appendChild(h('div', { class: 'card' },
       h('p', { class: 'small muted', text: 'Everything stays on this computer. Pick a data file and the schema that describes it; the cleaned data, the bad rows and the metrics are written to a new run folder.' }),
       h('div', { class: 'runfields' },
-        field('Data file', 'run-file', files, o.files.length ? 'No file here? See “Add your own files” below.' : 'No data files found. See “Add your own files” below.'),
+        dataField,
         field('Schema (what each column should look like)', 'run-schema', schemas, 'No schema yet? Choose the file, then use the draft button below.'),
         field('Metrics (what the report should answer)', 'run-analysis', analyses),
         field('Policy', 'run-policy', policy), field('Your name (goes into the audit log)', 'run-actor', actor)),
-      fit, policyNote, h('div', { class: 'btns' }, go, draft, sample), msg));
+      h('details', { id: 'run-path-box', class: 'folds', open: o.can_browse ? null : '' }, h('summary', { text: o.can_browse ? 'Or paste the full path of a file' : 'Paste the full path of a file (no file window is available here)' }),
+        h('label', { class: 'f', for: 'run-path', text: 'Full path of a data, schema or metrics file' }), pathBox, h('div', { class: 'btns' }, pathGo)),
+      size, fit, policyNote, h('div', { class: 'btns' }, go, draft, sample), why, msg));
     app.appendChild(resultBox);
 
-    var addBox = h('details', { id: 'add-files', class: 'folds' }, h('summary', { text: 'Add your own files' }),
-      h('p', { class: 'small', text: 'The app only reads files from these folders (it never takes a typed path, so it cannot be pointed at anything else):' }),
+    var addBox = h('details', { id: 'add-files', class: 'folds' }, h('summary', { text: 'Where the lists come from' }),
+      h('p', { class: 'small', text: 'The lists show the files in these folders, plus any file you chose yourself (that choice lasts until you stop the app). Choosing never copies a file; the run reads it where it is.' }),
       h('ul', { class: 'small' }, (o.folders || []).map(function (f) { return h('li', { class: 'mono', text: f }); })),
-      h('p', { class: 'small', text: 'To use a file from somewhere else, copy it into one of these folders (the inbox folder inside the work folder is meant for that), or stop the app and start it again with another folder: python -m datapipe app --data-dir <folder> (repeat the option for several folders). Schema and metrics files are found in the same folders and in examples/.' }),
+      h('p', { class: 'small', text: 'You can also drop a file into the inbox folder inside the work folder, or start the app with another folder: python -m datapipe app --data-dir <folder> (repeat the option for several folders). Schema and metrics files are found in the same folders and in examples/.' }),
       h('button', { type: 'button', class: 'secondary small', id: 'run-refresh', text: 'Refresh the lists', onclick: function () { remember(); showRun(runId); } }));
     app.appendChild(addBox);
 

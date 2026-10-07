@@ -252,9 +252,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"llm_key": self.server.settings.set_llm_key(payload)})
             if path == "/api/settings/llm-key/clear" and self.server.settings is not None:
                 return self._json(200, {"llm_key": self.server.settings.clear_llm_key()})
-            if path in ("/api/run/start", "/api/run/draft-schema", "/api/run/check", "/api/run/sample") and self.server.runner is not None:
+            if path in ("/api/run/start", "/api/run/draft-schema", "/api/run/check", "/api/run/sample", "/api/run/add-file") \
+                    and self.server.runner is not None:
                 runner = self.server.runner
                 action = {"/api/run/start": runner.start, "/api/run/draft-schema": runner.draft_schema, "/api/run/check": runner.check,
+                          "/api/run/add-file": runner.add_file,
                           "/api/run/sample": lambda _payload: runner.make_sample()}[path]
                 return self._json(200, action(payload))
             m = _ROUTE_ACT.match(path)

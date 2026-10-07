@@ -32,7 +32,9 @@ python -m datapipe app --data-dir .
 
 Your browser opens. Choose **Data file** `buyers.csv`, **Schema** `schema_buyers.json`, **Metrics** `analysis_buyers.json`, policy **business**, enter your name, press **Run**. When it finishes you see the counts, the metrics tables and download buttons.
 
-**Using a file from somewhere else** (Downloads, a USB stick): copy it into `work/inbox/` (created when the app starts) and press *Refresh the lists*, or restart with `python -m datapipe app --data-dir "C:\path\to\folder"`. The page lists the folders it reads under *Add your own files*.
+**Using a file from somewhere else** (Downloads, a USB stick, any folder): press *Choose a file on this computer…* under **Data file**. A normal file window opens; nothing is copied, the run reads the file where it is. If no file window is available, paste the file's full path into the box under *Or paste the full path of a file*. The choice lasts until you stop the app. You can also copy a file into `work/inbox/` and press *Refresh the lists* (under *Where the lists come from*), or restart with `python -m datapipe app --data-dir "C:\path\to\folder"`.
+
+If **Run** is greyed out, the line under it says what is still missing. Under the file list the page also shows roughly how much memory the chosen file needs and warns before a run that would be refused for lack of memory.
 
 Prefer the terminal? `python -m datapipe run buyers.csv --policy business --schema examples/schema_buyers.json --analysis examples/analysis_buyers.json --actor yourname`
 

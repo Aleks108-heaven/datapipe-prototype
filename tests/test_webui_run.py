@@ -273,6 +273,190 @@ def test_the_app_command_also_watches_an_inbox_folder_in_the_work_folder(tmp_pat
     assert _data_dirs(Namespace(data_dir=[], workdir=str(tmp_path / "w2")), False)[0].is_dir()      # review: current folder, no inbox
     assert not (tmp_path / "w2" / "inbox").exists()
 
+
+# ---------------------------------------------------------------- a file from anywhere on this computer
+@pytest.fixture
+def elsewhere(tmp_path):
+    """A data file that is in none of the listed folders."""
+    folder = tmp_path / "Downloads"
+    folder.mkdir()
+    path = folder / "export 2026.csv"
+    shutil.copy(EX / "sales.csv", path)
+    return path
+
+
+def test_a_typed_path_adds_a_file_that_can_then_be_run_by_id(app, elsewhere):
+    c = Client(app).login()
+    assert "export 2026.csv" not in [f["name"] for f in c.json("GET", "/api/run/options")[1]["files"]]
+    status, res = c.json("POST", "/api/run/add-file", {"path": f'  "{elsewhere}"  '})      # pasted from Explorer, with quotes
+    assert status == 200 and res["added"]["kind"] == "file" and res["added"]["name"] == "export 2026.csv"
+    _, o = c.json("GET", "/api/run/options")
+    item = next(f for f in o["files"] if f["id"] == res["added"]["id"])
+    assert item["where"] == "chosen by you" and item["bytes"] == elsewhere.stat().st_size
+    assert str(elsewhere.parent) not in json.dumps(o["files"])                              # still no server paths in the lists
+    st = run_and_wait(c, o, file=item["id"])
+    assert st["state"] == "done"
+    assert c.json("GET", f"/api/run/result?run={st['run_id']}")[1]["source"] == "export 2026.csv"
+
+
+def test_adding_the_same_file_twice_lists_it_once_and_a_file_in_a_listed_folder_is_not_duplicated(app, elsewhere):
+    c = Client(app).login()
+    for _ in range(2):
+        assert c.json("POST", "/api/run/add-file", {"path": str(elsewhere)})[0] == 200
+    assert [f["name"] for f in c.json("GET", "/api/run/options")[1]["files"]].count("export 2026.csv") == 1
+    _, res = c.json("POST", "/api/run/add-file", {"path": str(app.data / "sales.csv")})
+    assert res["added"]["name"] == "sales.csv"
+    assert [f["name"] for f in c.json("GET", "/api/run/options")[1]["files"]].count("sales.csv") == 1
+
+
+def test_a_chosen_schema_file_lands_in_the_schema_list(app, tmp_path):
+    other = tmp_path / "Documents"
+    other.mkdir()
+    shutil.copy(EX / "schema_buyers.json", other)
+    c = Client(app).login()
+    _, res = c.json("POST", "/api/run/add-file", {"path": str(other / "schema_buyers.json")})
+    assert res["added"]["kind"] == "schema"
+    o = c.json("GET", "/api/run/options")[1]
+    assert "schema_buyers.json" in [s["name"] for s in o["schemas"]] and "schema_buyers.json" not in [f["name"] for f in o["files"]]
+
+
+def test_add_file_refuses_anything_that_is_not_a_plain_data_file(app, elsewhere, tmp_path):
+    (tmp_path / "notes.txt").write_text("x")
+    c = Client(app).login()
+    bad = ["", "   ", "export.csv", "..\\export.csv", str(tmp_path), str(tmp_path / "missing.csv"), str(tmp_path / "notes.txt"),
+           "x" * 2000, "a\0b.csv"]
+    for path in bad:
+        assert c.json("POST", "/api/run/add-file", {"path": path})[0] == 400, repr(path[:40])
+    for body in ({"path": 5}, {"path": ["a"]}, [], "x"):
+        assert c.json("POST", "/api/run/add-file", body)[0] == 400, body
+    try:
+        (tmp_path / "link.csv").symlink_to(elsewhere)
+        assert c.json("POST", "/api/run/add-file", {"path": str(tmp_path / "link.csv")})[0] == 400
+    except (OSError, NotImplementedError):
+        pass
+    assert "export 2026.csv" not in [f["name"] for f in c.json("GET", "/api/run/options")[1]["files"]]
+
+
+def test_add_file_needs_login_csrf_and_a_same_origin_request(app, elsewhere):
+    c = Client(app).login()
+    body = {"path": str(elsewhere)}
+    assert Client(app).req("POST", "/api/run/add-file", body)[0] == 401
+    assert c.req("POST", "/api/run/add-file", body, headers={"X-DataPipe-CSRF": "wrong"})[0] == 403
+    assert c.req("POST", "/api/run/add-file", body, headers={"Origin": "http://evil.example"})[0] == 403
+    assert c.req("GET", "/api/run/add-file")[0] in (404, 405)
+    assert "export 2026.csv" not in [f["name"] for f in c.json("GET", "/api/run/options")[1]["files"]]
+
+
+def test_the_file_window_result_is_added_and_a_cancel_is_not_an_error(app, elsewhere):
+    c = Client(app).login()
+    answers = iter([elsewhere, None])
+    app.runner._chooser, app.runner._can_browse = (lambda: next(answers)), True
+    status, res = c.json("POST", "/api/run/add-file", {})
+    assert status == 200 and res["added"]["name"] == "export 2026.csv"
+    assert c.json("POST", "/api/run/add-file", {}) == (200, {"added": None})
+
+
+def test_the_file_window_cannot_be_opened_twice_and_a_missing_window_falls_back_to_typing(app):
+    from datapipe.webui import filedialog
+    c = Client(app).login()
+    gate, opened = threading.Event(), threading.Event()
+
+    def slow():
+        opened.set()
+        gate.wait(10)
+        return None
+    app.runner._chooser, app.runner._can_browse = slow, True
+    first = []
+    t = threading.Thread(target=lambda: first.append(c.json("POST", "/api/run/add-file", {})))
+    t.start()
+    assert opened.wait(10)
+    status, res = c.json("POST", "/api/run/add-file", {})
+    assert status == 409 and "already open" in res["error"]
+    gate.set()
+    t.join(10)
+    assert first[0] == (200, {"added": None})
+
+    def broken():
+        raise filedialog.DialogUnavailable("no file window is available on this computer; paste the full path instead")
+    app.runner._chooser = broken
+    status, res = c.json("POST", "/api/run/add-file", {})
+    assert status == 409 and "paste the full path" in res["error"]
+    assert c.json("GET", "/api/run/options")[1]["can_browse"] is False         # the page now shows the typing box instead
+
+
+def test_options_carry_what_the_page_needs_to_explain_size_and_memory(app):
+    o = Client(app).login().json("GET", "/api/run/options")[1]
+    assert o["files"][0]["bytes"] > 0 and o["stream_above_mb"] == 100 and isinstance(o["can_browse"], bool)
+    assert {p["name"]: p["max_memory_gb"] for p in o["policies"]}["business"] == 6.0
+
+
+def test_the_filedialog_module_runs_a_real_windows_dialog_and_cancel_returns_none():
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("Windows only")
+    import ctypes
+    from datapipe.webui import filedialog
+
+    def close_it():
+        user32 = ctypes.windll.user32
+        for _ in range(100):
+            hwnd = user32.FindWindowW("#32770", filedialog.TITLE)                   # the standard dialog class, by its title
+            if hwnd:
+                user32.PostMessageW(hwnd, 0x0010, 0, 0)                             # WM_CLOSE = the person pressing Cancel
+                return
+            time.sleep(0.1)
+    import faulthandler
+    t = threading.Thread(target=close_it, daemon=True)
+    t.start()
+    faulthandler.disable()           # Windows' own dialog raises and handles a COM error (0x80010108) when it is closed from outside;
+    try:                             # faulthandler would print that harmless first-chance error as a "fatal exception" dump
+        assert filedialog.choose_file() is None
+    finally:
+        faulthandler.enable()
+    t.join(10)
+
+
+def test_the_page_explains_a_disabled_run_and_warns_when_a_file_will_not_fit_in_memory(app, elsewhere):
+    from playwright.sync_api import expect, sync_playwright
+    big = elsewhere.parent / "big.csv"
+    with open(big, "wb") as fh:
+        fh.write(b"a,b\n")
+        fh.write(b"1,2\n" * (21 * 1024 * 1024 // 4))                                  # 21 MB -> ~25x = 0.5 GB+
+    c = Client(app).login()
+    app.runner._can_browse = True                                                     # the typing box starts folded, as on a normal desktop
+    assert c.json("POST", "/api/settings", {"max_memory_gb": 0.5, "policy": "low", "theme": "system", "actor": ""})[0] == 200
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+        except Exception as exc:
+            pytest.skip(f"Chromium not available: {exc}")
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{app.port}/?t={TOKEN}&go=run")
+        page.wait_for_selector("#run-file")
+        expect(page.locator("#run-go")).to_be_disabled()
+        expect(page.locator("#run-why")).to_contain_text("choose a data file")
+        assert page.locator("#run-go").get_attribute("aria-describedby") == "run-why"
+        page.locator("#run-actor").fill("alice")
+        expect(page.locator("#run-why")).to_contain_text("a data file and a schema")
+        # a file from somewhere else, by typing its path
+        page.locator("#run-path-box summary").click()
+        page.locator("#run-path").fill(str(big))
+        page.locator("#run-path-go").click()
+        expect(page.locator("#run-file")).not_to_have_value("")
+        expect(page.locator("#run-file option:checked")).to_contain_text("big.csv")
+        expect(page.locator("#run-size")).to_contain_text("probably be refused")
+        page.select_option("#run-file", page.locator("#run-file option", has_text="sales.csv").get_attribute("value"))
+        expect(page.locator("#run-size")).to_contain_text("needs roughly")
+        page.locator("#run-path-box summary").click()
+        page.locator("#run-path").fill(str(elsewhere.parent / "nope.csv"))
+        page.locator("#run-path-go").click()
+        expect(page.locator("#run-msg")).to_contain_text("not a regular file")
+        assert page.evaluate("document.documentElement.scrollWidth - innerWidth") <= 1
+        browser.close()
+        assert errors == []
+
 # ---------------------------------------------------------------- metrics as CSV
 def test_metrics_download_as_csv_files_and_as_one_zip(app):
     import io
