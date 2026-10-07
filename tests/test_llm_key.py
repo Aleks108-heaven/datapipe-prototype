@@ -21,7 +21,7 @@ def test_save_load_and_clear_roundtrip_in_the_per_user_folder(tmp_path):
     keystore.save_key("  " + KEY + "\n")                                   # pasted with spaces/newline around it: trimmed
     assert keystore.load_key() == KEY
     assert keystore.key_path() == tmp_path / "user-config" / "llm.json"
-    assert keystore.status() == {"saved": True, "environment": False, "path": str(keystore.key_path())}
+    assert keystore.status() == {"saved": True, "environment": False, "store": "file", "path": str(keystore.key_path())}
     keystore.clear_key()
     assert keystore.load_key() is None and not keystore.key_path().exists()
     keystore.clear_key()                                                   # removing twice is fine

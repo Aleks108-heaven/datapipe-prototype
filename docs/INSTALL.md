@@ -38,7 +38,7 @@ A single file, about 25 MB, built for Windows, Mac (Apple silicon) and Linux by 
 
 Started without arguments it opens the app in your browser. A black window stays open showing the link; close it to stop the app. Your files go in `~/datapipe/files`, results in `~/datapipe/work`. It starts in a few seconds (it unpacks itself each time). With arguments it works exactly like the `datapipe` command, for example `datapipe.exe sample test.csv --mb 5`.
 
-**First time, no files?** On the *Run a file* page press **Create a fake sample file to try**: it writes a 2 MB file of invented buyers into your files folder and selects the matching example schema and metrics. The ⚙ **Settings** button holds your name, the default policy, size and memory limits, light/dark appearance, the interface language (English, Ukrainian — Українська — or the language of your browser), the language-model server for column mapping (pick Ollama or LM Studio, check that it answers, choose a model), and a check of the audit log.
+**First time, no files?** On the *Run a file* page press **Create a fake sample file to try**: it writes a 2 MB file of invented buyers into your files folder and selects the matching example schema and metrics. The ⚙ **Settings** button holds your name, the default policy, size and memory limits, light/dark appearance, the interface language (English, Ukrainian — Українська — or the language of your browser), the language-model server for column mapping (pick Ollama or LM Studio, check that it answers, choose a model) with an optional API key (on Windows kept in the Windows Credential Manager, not in a file), and a check of the audit log.
 
 ## What is not available yet
 

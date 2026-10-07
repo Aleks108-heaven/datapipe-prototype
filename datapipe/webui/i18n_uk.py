@@ -356,6 +356,9 @@ UI = {
     "Ollama on this computer needs none.": "Ollama на цьому комп’ютері його не потребує.",
     "Stored as plain text in your own user folder, not in the work folder. It is sent to the server address above (when you check the connection) and to the address you give the map command, so save one only for a server you trust.":
         "Зберігається звичайним текстом у вашій власній папці користувача, а не в робочій папці. Він надсилається на адресу сервера вище (коли ви перевіряєте з’єднання) і на адресу, яку ви даєте команді map, тож зберігайте ключ лише для сервера, якому довіряєте.",
+    "Stored in Windows Credential Manager.": "Зберігається в Диспетчері облікових даних Windows.",
+    "Stored in Windows Credential Manager, encrypted for your Windows login: not in the work folder and not in a file. It is sent to the server address above (when you check the connection) and to the address you give the map command, so save one only for a server you trust.":
+        "Зберігається в Диспетчері облікових даних Windows, зашифровано для вашого облікового запису Windows: не в робочій папці й не у файлі. Ключ надсилається на адресу сервера вище (коли ви перевіряєте з’єднання) і на адресу, яку ви даєте команді map, тож зберігайте ключ лише для сервера, якому довіряєте.",
     "It is never shown again; to change it, paste a new one.": "Його більше ніколи не показують; щоб змінити, вставте новий.",
     "API key": "Ключ API",
     "Check the audit log": "Перевірити журнал аудиту",

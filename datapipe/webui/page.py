@@ -1276,12 +1276,18 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var keyMsg = h('div', { class: 'small', id: 'set-llmkey-msg', role: 'status' });
     var keySave = h('button', { type: 'button', class: 'primary', id: 'set-llmkey-save', text: t('Save key') });
     var keyClear = h('button', { type: 'button', class: 'secondary', id: 'set-llmkey-clear', text: t('Remove saved key') });
+    var keyWhere = h('p', { class: 'small muted', id: 'set-llmkey-where' });
     function showKey(k) {
+      var cm = k.store === 'credential-manager';                         // where the server keeps it: Windows' own secret store, or a file
       keyInput.placeholder = k.saved ? t('Saved. Paste a new key to replace it') : t('Paste your key');
       keyClear.disabled = !k.saved;
       keyState.textContent = (k.saved ? t('A key is saved on this computer.') : t('No key is saved.')) +
         (k.environment ? ' ' + t('The environment variable DATAPIPE_LLM_API_KEY is set and takes priority over the saved key.') : '') +
-        ' ' + t('File: {0}', k.path);
+        ' ' + (cm ? t('Stored in Windows Credential Manager.') : t('File: {0}', k.path));
+      keyWhere.textContent = (cm
+        ? t('Stored in Windows Credential Manager, encrypted for your Windows login: not in the work folder and not in a file. It is sent to the server address above (when you check the connection) and to the address you give the map command, so save one only for a server you trust.')
+        : t('Stored as plain text in your own user folder, not in the work folder. It is sent to the server address above (when you check the connection) and to the address you give the map command, so save one only for a server you trust.')) +
+        ' ' + t('It is never shown again; to change it, paste a new one.');
     }
     var keyNow = llmKey;                                                // what the server last said: saved or not
     showKey(keyNow);
@@ -1297,8 +1303,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     app.appendChild(h('div', { class: 'card' }, h('h3', { text: t('Key for the model server (optional)') }),
       h('p', { class: 'small muted', text: t('Only needed when the server above asks for a key, such as a hosted service or LM Studio with a key switched on.') + ' ' +
         t('Ollama on this computer needs none.') }),
-      h('p', { class: 'small muted', text: t('Stored as plain text in your own user folder, not in the work folder. It is sent to the server address above (when you check the connection) and to the address you give the map command, so save one only for a server you trust.') + ' ' +
-        t('It is never shown again; to change it, paste a new one.') }),
+      keyWhere,
       h('div', { class: 'runfields' }, field(t('API key'), 'set-llmkey', keyInput)),
       keyState, h('div', { class: 'btns' }, keySave, keyClear), keyMsg));
 

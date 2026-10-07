@@ -13,10 +13,11 @@ CLEAN_CSV = (EX / "sales.csv").read_text()
 
 @pytest.fixture(autouse=True)
 def _private_config_dir(tmp_path, monkeypatch):
-    """No test may read or write the developer's real per-user folder (where the saved LLM key lives) or pick up a key from
-    their environment."""
+    """No test may read or write the developer's real per-user folder (where the saved LLM key lives), their Windows Credential Manager,
+    or pick up a key from their environment."""
     monkeypatch.setenv("DATAPIPE_CONFIG_DIR", str(tmp_path / "user-config"))
     monkeypatch.delenv("DATAPIPE_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("DATAPIPE_KEY_STORE", "file")          # the Windows Credential Manager is the real one: only tests that ask for it touch it
 
 
 @pytest.fixture
