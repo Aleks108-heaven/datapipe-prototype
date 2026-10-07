@@ -45,6 +45,21 @@ jobs:
           ./${{ matrix.built }} sample smoke.csv --mb 1
           ./${{ matrix.built }} --workdir smoke-work run smoke.csv --policy low --schema examples/schema_buyers.json --analysis examples/analysis_buyers.json --actor ci
           test -s smoke-work/runs/*/clean.csv
+      - name: Build the Windows installer and test it (install, run, uninstall)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python packaging/build_installer.py        # Inno Setup 6 is preinstalled on the Windows runner
+          if ($LASTEXITCODE) { throw "installer build failed" }
+          $setup = (Get-Item dist/datapipe-setup-*.exe).FullName
+          $dir = Join-Path $env:RUNNER_TEMP "datapipe-installed"
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$dir`"" -Wait -PassThru
+          if ($p.ExitCode) { throw "install failed: $($p.ExitCode)" }
+          & "$dir\datapipe.exe" policies | Out-Null
+          if ($LASTEXITCODE) { throw "the installed program does not run" }
+          $un = Get-Item "$dir\unins*.exe" | Select-Object -First 1
+          Start-Process $un.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          if (Test-Path "$dir\datapipe.exe") { throw "uninstall left the program behind" }
       - name: Package
         shell: bash
         run: |
@@ -58,6 +73,18 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: out/${{ matrix.asset }}
+          if-no-files-found: error
+      - name: Package the Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p installer
+          cp dist/datapipe-setup-*.exe installer/datapipe-windows-setup.exe
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: datapipe-windows-setup.exe
+          path: installer/datapipe-windows-setup.exe
           if-no-files-found: error
 
   release:

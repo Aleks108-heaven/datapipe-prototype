@@ -31,7 +31,8 @@ You also need a **schema** for each kind of file (what every column should look 
 A single file, about 25 MB, built for Windows, Mac (Apple silicon) and Linux by the *build standalone program* workflow on GitHub
 (Actions tab, then *Run workflow*; the files appear as downloads at the bottom of the run, and as a Release when a version tag is pushed).
 
-- **Windows:** `datapipe-windows.exe`. Double-click it. Windows may say *"Windows protected your PC"* because the file is not signed: choose *More info*, then *Run anyway*.
+- **Windows, with a setup wizard (recommended):** `datapipe-windows-setup.exe`. Double-click it and follow the steps. It installs for your user only (no administrator rights; the setup offers "all users" if you want that), adds *datapipe* and *datapipe files folder* to the Start menu (a desktop icon is optional), and creates `C:\Users\<you>\datapipe\files`. To remove it: Settings, Apps, *datapipe*, Uninstall. Uninstalling never touches your files or results in `C:\Users\<you>\datapipe`. Installing a newer version over an older one upgrades it in place.
+- **Windows, single file:** `datapipe-windows.exe`. Double-click it; nothing is installed. Either way Windows may say *"Windows protected your PC"* because the file is not signed: choose *More info*, then *Run anyway*.
 - **Mac:** `datapipe-macos-arm64.tar.gz`. Unpack it (double-click), then in Terminal: `xattr -d com.apple.quarantine datapipe` and `./datapipe` (or right-click, Open). Intel Macs: use the pip install above.
 - **Linux:** `datapipe-linux-x86_64.tar.gz`. `tar xzf datapipe-linux-x86_64.tar.gz && ./datapipe`
 
@@ -41,6 +42,6 @@ Started without arguments it opens the app in your browser. A black window stays
 
 ## What is not available yet
 
-- No signed installer, so Windows and Mac warn about an unknown publisher (code-signing certificates cost money). No Intel-Mac build.
+- Nothing is code-signed, including the Windows setup program, so Windows and Mac warn about an unknown publisher (code-signing certificates cost money). The setup wizard exists for Windows only. No Intel-Mac build.
 - Tested on Windows; Mac and Linux are covered by the automated tests on GitHub but have not been tried by hand.
 - Excel and Numbers files are not read directly: export to CSV first.
