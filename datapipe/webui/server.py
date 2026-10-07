@@ -125,8 +125,9 @@ class Handler(BaseHTTPRequestHandler):
                                       "text/plain; charset=utf-8")
                 nonce = secrets.token_urlsafe(16)
                 fixed = self.server.service.fixed_reviewer or ""
-                theme = self.server.settings.get()["theme"] if self.server.settings else "system"
-                page = render_page(nonce, self.server.csrf, html.escape(fixed, quote=True), theme)
+                shown = self.server.settings.get() if self.server.settings else {}
+                theme, language = shown.get("theme", "system"), shown.get("language", "system")
+                page = render_page(nonce, self.server.csrf, html.escape(fixed, quote=True), theme, language)
                 csp = (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
                        "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
                 return self._send(200, page.encode(), "text/html; charset=utf-8", csp=csp)

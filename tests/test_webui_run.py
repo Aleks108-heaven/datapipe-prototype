@@ -494,7 +494,7 @@ def test_csv_cells_that_a_spreadsheet_would_run_as_formulas_are_neutralised_but_
 def test_settings_defaults_save_and_survive_a_restart(app):
     c = Client(app).login()
     status, d = c.json("GET", "/api/settings")
-    assert status == 200 and d["settings"] == {"actor": "", "policy": "business", "max_file_mb": None, "max_memory_gb": None, "theme": "system"}
+    assert status == 200 and d["settings"] == {"actor": "", "policy": "business", "max_file_mb": None, "max_memory_gb": None, "theme": "system", "language": "system"}
     assert d["info"]["workdir"] == str(app.work.resolve()) and "business" in d["info"]["policies"]
     status, res = c.json("POST", "/api/settings", {"actor": "  Ana   Silva ", "policy": "regulated", "theme": "dark", "max_file_mb": 50, "max_memory_gb": 8})
     assert status == 200 and res["settings"]["actor"] == "Ana Silva" and res["settings"]["max_memory_gb"] == 8

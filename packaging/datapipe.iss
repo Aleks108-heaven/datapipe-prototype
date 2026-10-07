@@ -1,9 +1,10 @@
-; Windows installer for datapipe (Inno Setup 6). It wraps the standalone program built by packaging/build.py.
+﻿; Windows installer for datapipe (Inno Setup 6). It wraps the standalone program built by packaging/build.py.
 ; Build it with:  python packaging/build_installer.py        (or: ISCC /DAppVersion=0.1.0 packaging\datapipe.iss)
 ;
 ; Installs for the current user only (no administrator rights needed): %LOCALAPPDATA%\Programs\datapipe. The setup window
 ; offers "for all users" instead, which installs to Program Files and asks for administrator rights.
 ; Your files (~\datapipe\files) and results (~\datapipe\work) are NOT part of the installation, so uninstalling never deletes them.
+; The wizard is in English or Ukrainian: it follows the language of Windows, and asks only when Windows uses neither.
 ; The installer is not code-signed, so Windows shows an "unknown publisher" warning (SmartScreen: More info, then Run anyway).
 
 #ifndef AppVersion
@@ -39,10 +40,29 @@ UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 CloseApplications=yes
 RestartApplications=no
+ShowLanguageDialog=auto
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "ukrainian"; MessagesFile: "compiler:Languages\Ukrainian.isl"
 
 [Messages]
-WelcomeLabel2=This installs [name/ver] on your computer.%n%ndatapipe cleans and checks data files and keeps everything on this computer: the program opens in your web browser, but nothing is sent anywhere.%n%nThis installer is not signed, so Windows may call the publisher "unknown". That is expected.
-FinishedLabel=datapipe is installed. Start it from the Start menu. Put your data files in the folder  %USERPROFILE%\datapipe\files  or choose a file from anywhere inside the app.
+english.WelcomeLabel2=This installs [name/ver] on your computer.%n%ndatapipe cleans and checks data files and keeps everything on this computer: the program opens in your web browser, but nothing is sent anywhere.%n%nThis installer is not signed, so Windows may call the publisher "unknown". That is expected.
+english.FinishedLabel=datapipe is installed. Start it from the Start menu. Put your data files in the folder  %USERPROFILE%\datapipe\files  or choose a file from anywhere inside the app.
+ukrainian.WelcomeLabel2=Ця програма встановить [name/ver] на ваш комп’ютер.%n%ndatapipe очищає та перевіряє файли з даними й залишає все на цьому комп’ютері: програма відкривається у вашому браузері, але нічого нікуди не надсилається.%n%nЦей інсталятор не підписано, тому Windows може назвати видавця “невідомим”. Це очікувано.
+ukrainian.FinishedLabel=datapipe встановлено. Запустіть його з меню “Пуск”. Кладіть файли з даними в папку  %USERPROFILE%\datapipe\files  або виберіть файл будь-де всередині програми.
+
+[CustomMessages]
+english.AppComment=Clean and check a data file, on this computer
+english.FilesFolder=datapipe files folder
+english.FilesFolderComment=Put your data files here
+english.StartNow=Start datapipe now
+english.UninstallNote=datapipe was removed.%n%nYour files and results were not touched; they are still in%n%1%nDelete that folder yourself if you no longer need them.
+ukrainian.AppComment=Очищення та перевірка файлу з даними на цьому комп’ютері
+ukrainian.FilesFolder=datapipe - папка з файлами
+ukrainian.FilesFolderComment=Кладіть сюди файли з даними
+ukrainian.StartNow=Запустити datapipe зараз
+ukrainian.UninstallNote=datapipe видалено.%n%nВаші файли та результати не чіпали; вони досі лежать у%n%1%nВидаліть цю папку самі, якщо вони вам більше не потрібні.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -55,19 +75,16 @@ Name: "{#UserData}\files"; Flags: uninsneveruninstall
 Source: "..\dist\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{#UserData}"; Comment: "Clean and check a data file, on this computer"
-Name: "{autoprograms}\{#AppName} files folder"; Filename: "{#UserData}\files"; Comment: "Put your data files here"
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{#UserData}"; Comment: "{cm:AppComment}"
+Name: "{autoprograms}\{cm:FilesFolder}"; Filename: "{#UserData}\files"; Comment: "{cm:FilesFolderComment}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{#UserData}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExe}"; WorkingDir: "{#UserData}"; Description: "Start {#AppName} now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; WorkingDir: "{#UserData}"; Description: "{cm:StartNow}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
-    MsgBox('datapipe was removed.' + #13#10 + #13#10 +
-           'Your files and results were not touched; they are still in' + #13#10 +
-           ExpandConstant('{#UserData}') + #13#10 + 'Delete that folder yourself if you no longer need them.',
-           mbInformation, MB_OK);
+    MsgBox(FmtMessage(CustomMessage('UninstallNote'), [ExpandConstant('{#UserData}')]), mbInformation, MB_OK);
 end;

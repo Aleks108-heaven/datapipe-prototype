@@ -12,10 +12,11 @@ from ..identity import clean_name
 from ..llm import connection, keystore
 from ..llm.providers import locality_of
 from ..policy import POLICIES
+from .i18n import LANGUAGES
 from .service import ApiError
 
 THEMES = ("system", "light", "dark")
-DEFAULTS = {"actor": "", "policy": "business", "max_file_mb": None, "max_memory_gb": None, "theme": "system"}
+DEFAULTS = {"actor": "", "policy": "business", "max_file_mb": None, "max_memory_gb": None, "theme": "system", "language": "system"}
 FILE_MB_RANGE = (1, 100_000)
 MEMORY_GB_RANGE = (0.5, 1024)
 
@@ -43,7 +44,10 @@ def validate(payload):
     theme = payload.get("theme", "system")
     if theme not in THEMES:
         raise ApiError(400, "theme must be system, light or dark")
-    return {"actor": clean_name(actor), "policy": policy, "theme": theme,
+    language = payload.get("language", "system")
+    if language not in LANGUAGES:
+        raise ApiError(400, "language must be system, en or uk")
+    return {"actor": clean_name(actor), "policy": policy, "theme": theme, "language": language,
             "max_file_mb": _number(payload.get("max_file_mb"), *FILE_MB_RANGE, "the file-size limit (MB)"),
             "max_memory_gb": _number(payload.get("max_memory_gb"), *MEMORY_GB_RANGE, "the memory limit (GB)")}
 
