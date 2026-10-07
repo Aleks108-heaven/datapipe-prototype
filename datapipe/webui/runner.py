@@ -16,6 +16,7 @@ import time
 import zipfile
 from pathlib import Path
 
+from ..analyze import AnalysisError, _check_single_select, _run_query, build_engine, load_analysis
 from ..errors import DataPipeError
 from ..identity import clean_name
 from ..ingest import read_source
@@ -27,6 +28,7 @@ from . import filedialog
 from .service import ApiError
 from .settings import SettingsStore
 
+MAX_METRIC_CHECKS = 12              # metrics files tested against the chosen schema before a run
 MAX_PICKED = 20                    # files the person chose from anywhere that the app remembers, newest first
 RECENT_FILE = "recent-files.json"  # in the work folder: just the paths, so the list is still there after a restart
 DATA_SUFFIXES = {".csv", ".tsv", ".jsonl", ".json", ".sql"}
@@ -379,16 +381,68 @@ class RunService:
         except (csv.Error, StopIteration):
             return None
 
+    @staticmethod
+    def _metrics_problem(schema, spec, policy):
+        """None when every metric of the file can be set up against the schema's columns, else which metric cannot and why.
+        Each query runs on an EMPTY table with the schema's columns (as the real run would build it, with personal columns left out
+        when the policy masks them), so nothing is read from the person's data. Only a missing column or table, or SQL that does not
+        parse, counts: that is a mismatch the run would stop on. Anything else is not our business here."""
+        con, _ = build_engine(schema, [], policy)
+        try:
+            for m in spec.metrics:
+                try:
+                    _check_single_select(con, m.sql)
+                    _run_query(con, m.sql)
+                except AnalysisError as exc:
+                    text = str(exc)
+                    if "Binder Error" in text or "Catalog Error" in text or "does not parse" in text:
+                        col = re.search(r'Referenced column "([^"]{1,80})" not found', text)
+                        col = col.group(1) if col else None
+                        return {"metric": str(m.name)[:80], "column": col,
+                                "hidden": bool(col and col in {c.name for c in schema.columns}),      # the schema has it, the policy keeps it out
+                                "message": text[:200]}
+        finally:
+            con.close()
+        return None
+
+    def _check_metrics(self, schemas, analyses, payload):
+        """Does the chosen metrics file fit the chosen schema, and which other one does? None until a schema is chosen."""
+        schema_item = next((s for s in schemas if s["id"] == str(payload.get("schema", ""))), None)
+        if schema_item is None or not analyses:
+            return None
+        policy_name = payload.get("policy")
+        policy = POLICIES[policy_name] if isinstance(policy_name, str) and policy_name in POLICIES else get_policy("business")
+        try:
+            schema = load_schema(schema_item["_path"])
+        except DataPipeError:
+            return None
+        problems = {}
+        for item in analyses[:MAX_METRIC_CHECKS]:
+            try:
+                problems[item["id"]] = self._metrics_problem(schema, load_analysis(item["_path"]), policy)
+            except DataPipeError:
+                continue                                                   # a metrics file that cannot even be read is not offered
+        chosen_id = str(payload.get("analysis", ""))
+        chosen = {"id": chosen_id, "ok": problems[chosen_id] is None, **(problems[chosen_id] or {})} if chosen_id in problems else None
+        fitting = [a for a in analyses if a["id"] in problems and problems[a["id"]] is None]
+        twin = "analysis_" + schema_item["name"][len("schema_"):] if schema_item["name"].startswith("schema_") else None
+        best = next((a for a in fitting if a["name"] == twin), None) or (fitting[0] if fitting else None)
+        return {"chosen": chosen, "best": {"id": best["id"], "name": best["name"]} if best else None}
+
     def check(self, payload):
         """Compare the file's header with each schema: how many schema columns the file has, which required ones are missing,
-        and which schema fits best. Statistics and column names of the schema only - no file values."""
+        and which schema fits best; and whether the chosen metrics file fits the chosen schema. Statistics and column names of
+        the schema only - no file values."""
         if not isinstance(payload, dict):
             raise ApiError(400, "invalid request")
-        data, schemas, _ = self._scan()
+        data, schemas, analyses = self._scan()
+        metrics = self._check_metrics(schemas, analyses, payload)           # needs the schema, not the file
+        if not str(payload.get("file", "")):
+            return {"known": False, "metrics": metrics}
         file = self._pick(data, str(payload.get("file", "")), "file")
         header = self._header(file)
         if header is None:
-            return {"known": False}
+            return {"known": False, "metrics": metrics}
         have = set(header)
         fits = []
         for item in schemas:
@@ -407,7 +461,7 @@ class RunService:
         by_id = {f["id"]: f for f in fits}
         chosen = by_id.get(str(payload.get("schema", "")))
         best = fits[0] if fits else None
-        return {"known": True, "file_columns": len(header), "chosen": chosen, "best": best}
+        return {"known": True, "file_columns": len(header), "chosen": chosen, "best": best, "metrics": metrics}
 
     # ------------------------------------------------------------ a fake file to try the app with
     def make_sample(self):

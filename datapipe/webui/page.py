@@ -875,6 +875,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     });
     function remember() { runForm.file = files.value; runForm.schema = schemas.value; runForm.analysis = analyses.value; runForm.policy = policy.value; runForm.actor = actor.value; }
     var fit = h('div', { class: 'small', id: 'run-fit', role: 'status' });
+    var metricsFit = h('div', { class: 'small', id: 'run-metrics-fit', role: 'status' });
     var fitSeq = 0;
     var why = h('div', { class: 'small muted', id: 'run-why' });
     var size = h('div', { class: 'small', id: 'run-size', role: 'status' });
@@ -935,20 +936,44 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     browse.addEventListener('click', function () { addFile({}, browse); });
     pathGo.addEventListener('click', function () { addFile({ path: pathBox.value }, pathGo); });
     pathBox.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); pathGo.click(); } });
+    // schema_x.json goes with analysis_x.json: choose that metrics file if the list has it
+    function pickTwin(schemaName) {
+      var twin = schemaName.replace(/^schema_/, 'analysis_');
+      var hit = Array.prototype.filter.call(analyses.options, function (op) { return op.text.indexOf(twin + ' ') === 0; })[0];
+      if (hit) analyses.value = hit.value;
+      return !!hit;
+    }
+    // Does the chosen metrics file fit the chosen schema? A mismatch used to show up only after the run had stopped, in the database's own words.
+    function showMetrics(m) {
+      clear(metricsFit);
+      var ch = m && m.chosen;
+      if (!analyses.value || !ch) return;
+      if (ch.ok) { metricsFit.className = 'small ok-note'; metricsFit.textContent = t('✓ The metrics fit this schema.'); return; }
+      metricsFit.className = 'small warn-note';
+      var why = ch.column
+        ? (ch.hidden ? t('⚠ This metrics file does not fit: the metric “{0}” uses “{1}”, which is personal data that this policy keeps out of the metrics, so the run would stop.', ch.metric, ch.column)
+                     : t('⚠ This metrics file does not fit this schema: the metric “{0}” needs the column “{1}”, which the schema does not have, so the run would stop.', ch.metric, ch.column))
+        : t('⚠ This metrics file does not fit this schema: the metric “{0}” cannot run, so the run would stop.', ch.metric);
+      metricsFit.appendChild(h('span', { text: why + ' ' }));
+      if (m.best && m.best.id !== ch.id) {
+        metricsFit.appendChild(h('button', { type: 'button', class: 'secondary small', id: 'run-metrics-use', text: t('Use {0} instead (fits)', m.best.name), onclick: function () { analyses.value = m.best.id; remember(); refresh(); checkFit(); } }));
+      }
+      metricsFit.appendChild(h('button', { type: 'button', class: 'secondary small', id: 'run-metrics-none', text: t('Run without metrics'), onclick: function () { analyses.value = ''; remember(); refresh(); checkFit(); } }));
+    }
     // Before anything runs: does the chosen schema describe this file? If not, say so and offer the schema that does.
     function checkFit() {
       var mine = ++fitSeq;
       clear(fit);
-      if (!files.value) return;
-      api('/api/run/check', { method: 'POST', body: { file: files.value, schema: schemas.value } }).then(function (r) {
-        if (mine !== fitSeq || !r.known) return;
+      clear(metricsFit);
+      if (!files.value && !schemas.value) return;
+      api('/api/run/check', { method: 'POST', body: { file: files.value, schema: schemas.value, analysis: analyses.value, policy: policy.value } }).then(function (r) {
+        if (mine !== fitSeq) return;
+        showMetrics(r.metrics);
+        if (!r.known) return;
         var best = r.best, ch = r.chosen;
         if (!schemas.value && best && best.missing_required_count === 0) {
           schemas.value = best.id;                                                              // nothing chosen yet: pick the schema that fits...
-          if (!analyses.value) {                                                                 // ...and the metrics file that goes with it (schema_x.json -> analysis_x.json)
-            var twin = best.name.replace(/^schema_/, 'analysis_');
-            Array.prototype.forEach.call(analyses.options, function (op) { if (op.text.indexOf(twin + ' ') === 0) analyses.value = op.value; });
-          }
+          if (!analyses.value) pickTwin(best.name);                                             // ...and the metrics file that goes with it
           remember(); refresh(); checkFit(); return;
         }
         if (ch && ch.missing_required_count === 0) {
@@ -958,14 +983,14 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
           fit.className = 'small warn-note';
           fit.appendChild(h('span', { text: t('⚠ This schema does not fit this file: {0} required columns are missing (for example {1}), and only {2} of {3} schema columns are in the file. The run would be stopped.', ch.missing_required_count, ch.missing_required.slice(0, 4).join(', '), ch.matched, ch.schema_columns) + ' ' }));
           if (best && best.id !== ch.id && best.missing_required_count === 0) {
-            fit.appendChild(h('button', { type: 'button', class: 'secondary small', text: t('Use {0} instead (fits)', best.name), onclick: function () { schemas.value = best.id; remember(); refresh(); checkFit(); } }));
+            fit.appendChild(h('button', { type: 'button', class: 'secondary small', text: t('Use {0} instead (fits)', best.name), onclick: function () { schemas.value = best.id; pickTwin(best.name); remember(); refresh(); checkFit(); } }));      // a new schema brings its own metrics file
           } else if (!best || best.missing_required_count > 0) {
             fit.appendChild(h('span', { text: t('None of the listed schemas fits; use “Draft a schema from the chosen file”.') }));
           }
         }
       }).catch(function () {});
     }
-    [files, schemas].forEach(function (c) { c.addEventListener('change', checkFit); });
+    [files, schemas, analyses, policy].forEach(function (c) { c.addEventListener('change', checkFit); });
     [files, schemas, analyses, policy].forEach(function (c) { c.addEventListener('change', refresh); });
     actor.addEventListener('input', refresh);
 
@@ -980,7 +1005,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         field(t('Policy'), 'run-policy', policy), field(t('Your name (goes into the audit log)'), 'run-actor', actor)),
       h('details', { id: 'run-path-box', class: 'folds', open: o.can_browse ? null : '' }, h('summary', { text: o.can_browse ? t('Or paste the full path of a file') : t('Paste the full path of a file (no file window is available here)') }),
         h('label', { class: 'f', for: 'run-path', text: t('Full path of a data, schema or metrics file') }), pathBox, h('div', { class: 'btns' }, pathGo)),
-      size, fit, policyNote, h('div', { class: 'btns' }, go, draft, sample), why, msg));
+      size, fit, metricsFit, policyNote, h('div', { class: 'btns' }, go, draft, sample), why, msg));
     app.appendChild(resultBox);
 
     var addBox = h('details', { id: 'add-files', class: 'folds' }, h('summary', { text: t('Where the lists come from') }),

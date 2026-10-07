@@ -224,6 +224,14 @@ UI = {
     "({0} file columns are not in the schema)": "(стовпців файлу, яких немає в схемі: {0})",
     "⚠ This schema does not fit this file: {0} required columns are missing (for example {1}), and only {2} of {3} schema columns are in the file. The run would be stopped.":
         "⚠ Ця схема не підходить до цього файлу: бракує обов’язкових стовпців: {0} (наприклад {1}), а у файлі є лише {2} із {3} стовпців схеми. Запуск було б зупинено.",
+    "✓ The metrics fit this schema.": "✓ Метрики підходять до цієї схеми.",
+    "⚠ This metrics file does not fit: the metric “{0}” uses “{1}”, which is personal data that this policy keeps out of the metrics, so the run would stop.":
+        "⚠ Цей файл метрик не підходить: метрика “{0}” використовує “{1}” — це персональні дані, які ця політика не пускає в метрики, тому запуск зупиниться.",
+    "⚠ This metrics file does not fit this schema: the metric “{0}” needs the column “{1}”, which the schema does not have, so the run would stop.":
+        "⚠ Цей файл метрик не підходить до цієї схеми: метриці “{0}” потрібен стовпець “{1}”, якого в схемі немає, тому запуск зупиниться.",
+    "⚠ This metrics file does not fit this schema: the metric “{0}” cannot run, so the run would stop.":
+        "⚠ Цей файл метрик не підходить до цієї схеми: метрика “{0}” не може виконатися, тому запуск зупиниться.",
+    "Run without metrics": "Запустити без метрик",
     "Use {0} instead (fits)": "Використати {0} натомість (підходить)",
     "None of the listed schemas fits; use “Draft a schema from the chosen file”.":
         "Жодна зі схем у списку не підходить; скористайтеся кнопкою “Створити чернетку схеми з вибраного файлу”.",
@@ -471,6 +479,11 @@ SERVER = {
     "a file with this name exists but its content differs from the one the proposal was made from":
         "файл із такою назвою існує, але його вміст відрізняється від того, з якого створено пропозицію",
     "source file not available": "вихідний файл недоступний",
+    # metrics
+    "metric query failed: {0}": "помилка запиту метрики: {0}",
+    "metric SQL does not parse: {0}": "SQL метрики не розбирається: {0}",
+    "a metric must be exactly one statement": "метрика має бути рівно одним запитом",
+    "only SELECT/WITH queries are allowed in metrics": "у метриках дозволено лише запити SELECT/WITH",
     # the checks on a proposed pairing and the approval of a mapping
     "source column has no values to verify against": "у стовпці-джерелі немає значень для перевірки",
     "only {0} of values fit the target type/format": "лише {0} значень відповідають цільовому типу/формату",
