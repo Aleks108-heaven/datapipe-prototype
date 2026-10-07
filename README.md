@@ -73,7 +73,7 @@ Missing required columns, zero data rows, zero valid rows, and reconciliation mi
 - Quarantine CSV neutralises spreadsheet formula injection.
 - Audit log is hash-chained (tamper-evident) and written under a file lock.
 - LLM calls never follow redirects (a redirect would re-send the API key to another host), require https except for localhost, and a cloud-proxied model name (`...:cloud`) is recorded as cloud egress even behind a localhost URL.
-- A tiny SQL dump cannot expand into a huge database or value (database cap 512 MB; single value 32 MB on Python 3.11+).
+- A tiny SQL dump cannot expand into a huge database or value (database cap 512 MB; single value 32 MB).
 - Hostile numbers (`1e999999999`, 5000-digit integers) are rejected as bad values, never crash the run.
 
 ## LLM-assisted schema mapping
@@ -165,7 +165,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 | 3 | An Ollama cloud model (`gpt-oss:120b-cloud`) behind `http://127.0.0.1:11434` was recorded as `local` ("nothing left this machine") | False privacy claim in the audit trail | Model names ending in `cloud` are recorded as `cloud` |
 | 4 | JSON `1e999999999` in a decimal column raised `decimal.Overflow` and aborted the run with a raw traceback | One crafted file kills a run | Magnitude checked with `adjusted()` first; clean "decimal too large" |
 | 5 | Schema pattern `(a+)+$` takes exponential time (0.2 s, 1.1 s, 4.2 s at n = 22, 24, 26) | CPU denial of service by a hostile schema | Nested unbounded repeats refused at schema load (partial: see limitations) |
-| 6 | A 66-byte SQL dump built a 100 MB value (scales to GBs; the size limit only covered the file) | Memory exhaustion | Sandbox database capped at 512 MB, single value at 32 MB (3.11+) |
+| 6 | A 66-byte SQL dump built a 100 MB value (scales to GBs; the size limit only covered the file) | Memory exhaustion | Sandbox database capped at 512 MB, single value at 32 MB |
 | 7 | DuckDB had no memory cap | A crafted metric exhausts memory | `memory_limit` 2 GB; the query fails cleanly |
 | 8 | CI workflow token had default permissions | Wider blast radius if a step were compromised | `permissions: contents: read` |
 
@@ -183,7 +183,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (575 tests; CI runs Linux/macOS/Windows x Python 3.10/3.13; the new code was run locally on Windows with Python 3.14). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (575 tests; CI runs Linux/macOS/Windows x Python 3.11/3.13/3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 
@@ -235,7 +235,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - **Design tokens:** radius, tap-target, spacing and type-size values are tokens in the page CSS.
 - **Tests:** symlink cases skip their symlink part where the OS forbids symlinks (Windows without Developer Mode); browser tests updated for the merged layout. At that time a local Windows run had 236 passed / 45 failed, all because DuckDB could not run on that machine; on 2026-10-02 the same PC ran all tests green.
 - **README corrections:** removed the contradiction about manual remapping.
-- **Continuous integration:** GitHub Actions runs the suite on Linux, macOS and Windows (Python 3.10 and 3.13). It found two real bugs that local runs had missed:
+- **Continuous integration:** GitHub Actions runs the suite on Linux, macOS and Windows (Python 3.11, 3.13 and 3.14). It found two real bugs that local runs had missed:
   - SQL-dump ingestion failed on Python 3.10, because `set_authorizer(None)` only clears the authorizer from 3.11 (on 3.10 it denies everything). It now installs an allow-all callback.
   - The first Windows audit lock blocked concurrent readers of the log (Windows byte-range locks are mandatory) and made a concurrency test fail intermittently. The lock now lives on a separate `.lock` file.
 

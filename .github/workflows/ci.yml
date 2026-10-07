@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.10", "3.13", "3.14"]      # 3.14 is what a laptop installs today; 3.10 is past its end of life (2026-10-01) but still supported by pyproject
+        python: ["3.11", "3.13", "3.14"]      # the oldest supported version, the one the standalone program is built with, and what a laptop installs today (3.10 ended 2026-10-01)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

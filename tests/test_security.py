@@ -134,10 +134,7 @@ def test_tiny_dump_cannot_store_an_enormous_database(monkeypatch):
         ingest.parse_sql_dump(bomb)
 
 
-def test_single_huge_value_is_refused_where_sqlite_limits_are_settable(monkeypatch):
-    import sqlite3
-    if not hasattr(sqlite3.Connection, "setlimit"):
-        pytest.skip("Connection.setlimit needs Python 3.11+ (the database-size cap above still applies)")
+def test_single_huge_value_is_refused(monkeypatch):
     monkeypatch.setattr(ingest, "SQL_MAX_VALUE_BYTES", 1024 * 1024)
     with pytest.raises(IngestError):
         ingest.parse_sql_dump("CREATE TABLE t(a); INSERT INTO t SELECT hex(randomblob(2000000));")

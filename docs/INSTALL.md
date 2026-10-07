@@ -1,6 +1,6 @@
 # Install datapipe on a laptop
 
-You need **Python 3.10 or newer** (python.org; or `scoop install python` / `winget install Python.Python.3.13` on Windows, `brew install python` on Mac, your package manager on Linux). Memory: a CSV or TSV file above 100 MB is read in chunks and needs well under 1 GB of RAM whatever its size (it needs free disk space instead, about 2-3 times the file's size while it runs). Other formats are loaded whole and need about 25 times their size in RAM (a 120 MB file used about 2.5 GB), so a 16 GB laptop is comfortable.
+You need **Python 3.11 or newer** (python.org; or `scoop install python` / `winget install Python.Python.3.13` on Windows, `brew install python` on Mac, your package manager on Linux). Memory: a CSV or TSV file above 100 MB is read in chunks and needs well under 1 GB of RAM whatever its size (it needs free disk space instead, about 2-3 times the file's size while it runs). Other formats are loaded whole and need about 25 times their size in RAM (a 120 MB file used about 2.5 GB), so a 16 GB laptop is comfortable.
 
 ## 1. Install
 

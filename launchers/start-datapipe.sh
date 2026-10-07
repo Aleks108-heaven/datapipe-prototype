@@ -11,6 +11,6 @@ for PY in python3 python; do
   fi
 done
 echo "datapipe is not installed, or Python was not found."
-echo "Install Python 3.10 or newer, then see docs/INSTALL.md"
+echo "Install Python 3.11 or newer, then see docs/INSTALL.md"
 printf "Press Enter to close. "; read _
 exit 1

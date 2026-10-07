@@ -4,7 +4,7 @@
 
 ## 1. Set up (5 minutes, once)
 
-You need Python 3.10 or newer (python.org, or `scoop install python` on Windows, `brew install python` on Mac).
+You need Python 3.11 or newer (python.org, or `scoop install python` on Windows, `brew install python` on Mac).
 
 ```
 git clone https://github.com/Aleks108-heaven/datapipe-prototype.git

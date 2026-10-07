@@ -19,7 +19,7 @@ if %errorlevel%==0 (
   goto :done
 )
 echo datapipe is not installed, or Python was not found.
-echo Install Python 3.10 or newer from python.org, then run:   python -m pip install git+https://github.com/Aleks108-heaven/datapipe-prototype.git
+echo Install Python 3.11 or newer from python.org, then run:   python -m pip install git+https://github.com/Aleks108-heaven/datapipe-prototype.git
 echo (see docs\INSTALL.md)
 pause
 :done

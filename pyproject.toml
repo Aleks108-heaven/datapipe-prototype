@@ -7,7 +7,7 @@ name = "datapipe"
 dynamic = ["version"]
 description = "Prototype: policy-driven, auditable pipeline for CSV/JSON/JSONL/SQL-dump data"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["duckdb>=1.0"]
 
 [project.optional-dependencies]
