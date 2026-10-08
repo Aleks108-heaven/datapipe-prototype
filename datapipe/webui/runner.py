@@ -343,6 +343,28 @@ class RunService:
             raise ApiError(409, "the folder could not be opened here; its path is shown on the page")
         return {"opened": True}
 
+    def download_name(self, run_id, kind, name=None):
+        """The file name a download is offered under (it goes into a response header). It is built only from names this app holds: the run's
+        folder name as the file system lists it, and either the fixed table of downloadable files or the metric names that run recorded. The
+        text of the request is only ever used to FIND one of those, never copied into the name, so no request can put its own characters there.
+        kind: "file" (a name from DOWNLOADS), "metric" (one metric as CSV) or "zip" (all metrics)."""
+        runs = self._runs_dir()
+        run = next((entry.name for entry in (runs.iterdir() if runs.is_dir() else ())
+                    if RUN_ID_RE.match(entry.name) and entry.name == run_id and entry.is_dir() and not entry.is_symlink()), None)
+        if run is None:
+            raise ApiError(404, "run not found")
+        if kind == "zip":
+            return f"{run}-metrics.zip"
+        if kind == "file":
+            own = next((key for key in DOWNLOADS if key == name), None)
+            if own is not None:
+                return f"{run}-{own}"
+            raise ApiError(404, "not found")
+        own = next((key for key in self._metrics(run) if key == name), None)
+        if own is not None and isinstance(own, str):
+            return f"{run}-{own}.csv"
+        raise ApiError(404, "metric not found")
+
     def download_path(self, run_id, name):
         if not RUN_ID_RE.match(run_id or "") or name not in DOWNLOADS:
             raise ApiError(404, "not found")

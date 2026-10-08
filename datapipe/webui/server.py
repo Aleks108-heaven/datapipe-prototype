@@ -173,14 +173,16 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             run_id, name, zipped = m.groups()
             if zipped:
-                return self._send(200, runner.metrics_zip(run_id), "application/zip",
-                                  {"Content-Disposition": f'attachment; filename="{run_id}-metrics.zip"'})
-            return self._send(200, runner.metric_csv(run_id, name), "text/csv; charset=utf-8",
-                              {"Content-Disposition": f'attachment; filename="{run_id}-{name}.csv"'})
+                body = runner.metrics_zip(run_id)
+                return self._send(200, body, "application/zip",
+                                  {"Content-Disposition": f'attachment; filename="{runner.download_name(run_id, "zip")}"'})
+            body = runner.metric_csv(run_id, name)
+            return self._send(200, body, "text/csv; charset=utf-8",
+                              {"Content-Disposition": f'attachment; filename="{runner.download_name(run_id, "metric", name)}"'})
         m = _ROUTE_DOWNLOAD.match(url.path)
         if m:
             path, ctype = runner.download_path(m.group(1), m.group(2))
-            return self._send_file(path, ctype, f"{m.group(1)}-{m.group(2)}")
+            return self._send_file(path, ctype, runner.download_name(m.group(1), "file", m.group(2)))
         return self._error(404, "not found")
 
     def _settings_get(self, path):
