@@ -24,10 +24,17 @@ from .settings import SettingsStore
 
 MAX_BODY = 64 * 1024
 _ID = r"[0-9a-f]{64}"
-_ROUTE_ONE = re.compile(rf"^/api/proposals/({_ID})$")
-_ROUTE_ACT = re.compile(rf"^/api/proposals/({_ID})/(approve|reject|check)$")
-_ROUTE_DOWNLOAD = re.compile(r"^/api/run/download/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/([a-z_.]+)$")
-_ROUTE_METRIC = re.compile(r"^/api/run/metrics/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/(?:([A-Za-z0-9_-]{1,80})\.csv|(all)\.zip)$")
+# \Z, not $: a "$" also matches just before a trailing newline, and these patterns decide what may reach a file name and a header
+_ROUTE_ONE = re.compile(rf"^/api/proposals/({_ID})\Z")
+_ROUTE_ACT = re.compile(rf"^/api/proposals/({_ID})/(approve|reject|check)\Z")
+_ROUTE_DOWNLOAD = re.compile(r"^/api/run/download/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/([a-z_.]+)\Z")
+_ROUTE_METRIC = re.compile(r"^/api/run/metrics/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/(?:([A-Za-z0-9_-]{1,80})\.csv|(all)\.zip)\Z")
+
+
+def _header_value(value):
+    """A header value never carries a control character: a line break would end the header and let what follows be read as another one
+    (HTTP response splitting). Today every value is built from checked names; this keeps it true if a future one is not."""
+    return re.sub(r"[\x00-\x1f\x7f]", "", str(value))
 COOKIE = "dp_session"
 
 
@@ -80,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy", csp)
         for k, v in (extra or {}).items():
-            self.send_header(k, v)
+            self.send_header(k, _header_value(v))
 
     def _send(self, status, body: bytes, ctype, extra=None, csp="default-src 'none'; frame-ancestors 'none'"):
         self.send_response(status)

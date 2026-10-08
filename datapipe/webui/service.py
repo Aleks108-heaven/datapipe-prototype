@@ -20,7 +20,7 @@ from ..mapping import (build_approved_schema, log_refusal, proposal_state, recor
 from ..policy import get_policy
 from ..schema import schema_from_dict
 
-ID_RE = re.compile(r"^[0-9a-f]{64}$")
+ID_RE = re.compile(r"^[0-9a-f]{64}\Z")
 MAX_FILES = 500
 MAX_PROPOSAL_BYTES = 5_000_000
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")

@@ -16,7 +16,7 @@ try:                                  # the regex parser is a private module; if
 except ImportError:                   # pragma: no cover - Python 3.10
     import sre_parse as _sre_parse
 
-NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")            # \Z, not $: "name\n" is not a name
 
 
 def _nested_unbounded_repeat(pattern):

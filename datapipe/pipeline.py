@@ -28,7 +28,7 @@ from .validate import Validated, validate
 
 STREAM_MODES = ("auto", "always", "never")
 STREAM_AUTO_BYTES = 100 * 1024 * 1024      # CSV files above this are streamed (memory stays flat); smaller ones are loaded
-RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
+RUN_ID_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}\Z")      # ASCII digits only (\d also matches other scripts) and \Z, not $ (which allows a trailing newline)
 EXIT_CODES = {"COMPLETED": 0, "COMPLETED_WITH_WARNINGS": 0, "PENDING_SIGNOFF": 0,
               "FAILED": 1, "BLOCKED": 2, "NEEDS_SCHEMA_CONFIRMATION": 3}
 

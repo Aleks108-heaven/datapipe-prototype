@@ -632,7 +632,7 @@ def test_cli_sample_writes_a_reproducible_fake_file_with_deliberate_errors(tmp_p
     assert main(["sample", str(a), "--rows", "500"]) == 0 and main(["sample", str(b), "--rows", "500"]) == 0
     assert a.read_bytes() == b.read_bytes()                                         # same seed, same file
     text = a.read_text(encoding="utf-8")
-    assert text.startswith("buyer_id,full_name,email,") and "example.com" in text and len(text.splitlines()) >= 500
+    assert text.startswith("buyer_id,full_name,email,") and re.search(r"@example\.com", text) and len(text.splitlines()) >= 500
     assert "wrote 500 rows" in capsys.readouterr().out
 
 
