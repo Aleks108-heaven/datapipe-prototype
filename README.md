@@ -183,7 +183,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 
 ## Project status
 
-**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (575 tests; CI runs Linux (Python 3.11, 3.13, 3.14), Windows (3.13, 3.14) and macOS (3.13)). Not production-ready: see "Known limitations".
+**Stage:** working prototype, demo-ready. Core pipeline, three policy tiers, LLM-assisted mapping (offline heuristic, Anthropic, and any OpenAI-compatible local/hosted model), browser review UI and CI are built and tested (575 tests; CI runs Linux, Windows and macOS on Python 3.11, 3.13 and 3.14). Not production-ready: see "Known limitations".
 
 **Roadmap**
 
@@ -235,7 +235,7 @@ Scope: the whole code base, by reading the code and by running working attacks a
 - **Design tokens:** radius, tap-target, spacing and type-size values are tokens in the page CSS.
 - **Tests:** symlink cases skip their symlink part where the OS forbids symlinks (Windows without Developer Mode); browser tests updated for the merged layout. At that time a local Windows run had 236 passed / 45 failed, all because DuckDB could not run on that machine; on 2026-10-02 the same PC ran all tests green.
 - **README corrections:** removed the contradiction about manual remapping.
-- **Continuous integration:** GitHub Actions runs the suite on Linux (Python 3.11, 3.13, 3.14), Windows (3.13, 3.14) and macOS (3.13); the matrix is kept small because minutes are limited on a private repository. It found two real bugs that local runs had missed:
+- **Continuous integration:** GitHub Actions runs the suite on Linux, Windows and macOS with Python 3.11, 3.13 and 3.14. It found two real bugs that local runs had missed:
   - SQL-dump ingestion failed on Python 3.10, because `set_authorizer(None)` only clears the authorizer from 3.11 (on 3.10 it denies everything). It now installs an allow-all callback.
   - The first Windows audit lock blocked concurrent readers of the log (Windows byte-range locks are mandatory) and made a concurrency test fail intermittently. The lock now lives on a separate `.lock` file.
 

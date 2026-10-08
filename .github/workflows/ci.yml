@@ -26,17 +26,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      # Minutes are limited on a private repository, and a macOS minute counts 10 times, a Windows minute 2 times. So: Linux gets every
-      # version (the oldest supported 3.11, the one the standalone program is built with 3.13, and 3.14 that a laptop installs today),
-      # Windows gets the two newest, macOS one. (3.10 ended on 2026-10-01.)
+      # Every system on the oldest supported Python (3.11), the one the standalone program is built with (3.13) and the one a laptop installs
+      # today (3.14). (3.10 ended on 2026-10-01.) The repository is public, so GitHub-hosted runners cost nothing; on a private repository
+      # a macOS minute counts 10 times and a Windows minute 2 times, and this would need trimming again.
       matrix:
-        include:
-          - {os: ubuntu-latest, python: "3.11"}
-          - {os: ubuntu-latest, python: "3.13"}
-          - {os: ubuntu-latest, python: "3.14"}
-          - {os: windows-latest, python: "3.13"}
-          - {os: windows-latest, python: "3.14"}
-          - {os: macos-latest, python: "3.13"}
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
