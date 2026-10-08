@@ -150,6 +150,32 @@ def test_absurdly_deep_records_never_escape_as_a_crash():
     assert t.rows == [] and len(t.structural_issues) == 1
 
 
+def test_a_list_inside_a_record_obeys_the_same_limit_on_every_python():
+    from datapipe.ingest import MAX_JSON_DEPTH
+    nest = lambda n: "[" * n + "]" * n
+    t = parse_json(f'[{{"id": 1, "a": {nest(MAX_JSON_DEPTH + 5)}}}, {{"id": 2, "a": {nest(5)}}}]')
+    assert [r["id"] for r in t.rows] == [2] and t.rows[0]["a"] == "[[[[[]]]]]" and [n for n, _ in t.structural_issues] == [1]
+    assert "levels deep" in t.structural_issues[0][1]
+    ok = parse_json(f'[{{"a": {nest(MAX_JSON_DEPTH - 1)}}}]')                  # right at the limit it still loads
+    assert len(ok.rows) == 1
+    # objects and lists count together: a list inside an object inside a record has that much less room (checked clearly on each side of the limit)
+    inside_too_deep = parse_json(f'[{{"x": {{"y": {nest(MAX_JSON_DEPTH + 2)}}}}}]')
+    assert inside_too_deep.rows == [] and len(inside_too_deep.structural_issues) == 1
+    inside_fine = parse_json(f'[{{"x": {{"y": {nest(MAX_JSON_DEPTH - 3)}}}}}]')
+    assert len(inside_fine.rows) == 1 and inside_fine.structural_issues == []
+
+
+def test_the_depth_measure_does_not_recurse():
+    from datapipe.ingest import _nested_deeper_than
+    deep = []
+    for _ in range(200_000):                                                      # far beyond any recursion limit: must still answer
+        deep = [deep]
+    assert _nested_deeper_than(deep, 100) is True
+    assert _nested_deeper_than({"a": [{"b": [1, 2, {"c": []}]}]}, 5) is False
+    assert _nested_deeper_than({"a": [{"b": [1, 2, {"c": []}]}]}, 3) is True
+    assert _nested_deeper_than([], 0) is False and _nested_deeper_than([[]], 0) is True
+
+
 def test_a_jsonl_line_nested_too_deep_is_a_row_level_issue():
     from datapipe.ingest import MAX_JSON_DEPTH
     t = parse_jsonl('{"a": 1}\n' + _nested(MAX_JSON_DEPTH + 5) + '\n{"a": 2}\n')

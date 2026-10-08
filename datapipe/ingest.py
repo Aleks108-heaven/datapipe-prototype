@@ -226,6 +226,19 @@ class _TooDeep(Exception):
 MAX_JSON_DEPTH = 100
 
 
+def _nested_deeper_than(value, limit):
+    """Is this list or object nested more than `limit` levels deep? Walks with a stack of its own, not by recursion, so the answer is the
+    same on every Python and platform and a hostile value cannot exhaust the interpreter's stack while it is being measured."""
+    stack = [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if depth > limit:
+            return True
+        children = item.values() if isinstance(item, dict) else item
+        stack.extend((child, depth + 1) for child in children if isinstance(child, (list, dict)))
+    return False
+
+
 def _flatten(obj, prefix="", out=None, depth=0):
     """Nested objects become dotted column names. Two different fields that end up with the same name (for example
     {"a": {"b": 1}, "a.b": 2}) would silently overwrite each other, so that record is refused instead. A record nested deeper than
@@ -241,9 +254,11 @@ def _flatten(obj, prefix="", out=None, depth=0):
         if name in out:
             raise _KeyCollision(name)
         if isinstance(value, list):
+            if _nested_deeper_than(value, MAX_JSON_DEPTH - depth):
+                raise _TooDeep()
             try:
                 out[name] = json.dumps(value, default=str, sort_keys=True)
-            except RecursionError:                      # a list nested far deeper than any real record
+            except RecursionError:                      # not expected after the check above; kept so that it can never escape as a crash
                 raise _TooDeep()
         else:
             out[name] = value
