@@ -56,12 +56,16 @@ def test_every_route_pattern_accepts_its_path_and_refuses_a_trailing_newline(rou
 
 
 # ---------------------------------------------------------------- header values
-def test_a_header_value_loses_every_control_character():
+def test_a_header_value_can_never_carry_a_control_character_but_keeps_everything_a_real_value_has():
     clean = srv._header_value
-    assert clean("attachment; filename=\"a.csv\"") == "attachment; filename=\"a.csv\""
-    assert clean("x\r\nSet-Cookie: stolen=1") == "xSet-Cookie: stolen=1"        # the line break that would have started a second header is gone
-    assert clean("a\nb\rc\x00d\x1fe\x7ff") == "abcdef"
-    assert clean(5) == "5" and clean(None) == "None"
+    for real in ('attachment; filename="a.csv"', "/#/run", "dp_session=Abc-_123; HttpOnly; SameSite=Strict; Path=/",
+                 "text/csv; charset=utf-8", "default-src 'none'; frame-ancestors 'none'"):
+        assert clean(real) == real, real                                           # nothing a real header holds is changed
+    assert clean("x\r\nSet-Cookie: stolen=1") == "x%0D%0ASet-Cookie: stolen=1"    # the line break that would have started a second header is encoded
+    assert clean("a\nb\rc\x00d\x1fe\x7ff") == "a%0Ab%0Dc%00d%1Fe%7Ff"
+    assert clean("é") == "%C3%A9" and clean(5) == "5" and clean(None) == "None"
+    for hostile in ("\r\n", "a\r\nb: c", "\x00\x01\x02", "line\u0085next", "\u2028"):
+        assert not any(ch in clean(hostile) for ch in "\r\n\x00"), repr(hostile)
 
 
 def test_the_handler_sends_only_sanitised_extra_headers():
@@ -70,7 +74,7 @@ def test_the_handler_sends_only_sanitised_extra_headers():
     handler.send_header = lambda name, value: sent.append((name, value))
     handler._headers("text/plain", {"Content-Disposition": 'attachment; filename="x\r\nInjected: 1.csv"', "X-Other": "ok"})
     extra = dict(sent)
-    assert extra["Content-Disposition"] == 'attachment; filename="xInjected: 1.csv"' and extra["X-Other"] == "ok"
+    assert extra["Content-Disposition"] == 'attachment; filename="x%0D%0AInjected: 1.csv"' and extra["X-Other"] == "ok"
     assert all("\r" not in v and "\n" not in v for _, v in sent)
     assert ("X-Frame-Options", "DENY") in sent and ("Cache-Control", "no-store") in sent        # the fixed security headers are still sent
 

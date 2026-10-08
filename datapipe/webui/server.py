@@ -15,7 +15,7 @@ import traceback
 from pathlib import Path
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 from .page import render_page
 from .runner import RunService
@@ -33,8 +33,10 @@ _ROUTE_METRIC = re.compile(r"^/api/run/metrics/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})/
 
 def _header_value(value):
     """A header value never carries a control character: a line break would end the header and let what follows be read as another one
-    (HTTP response splitting). Today every value is built from checked names; this keeps it true if a future one is not."""
-    return re.sub(r"[\x00-\x1f\x7f]", "", str(value))
+    (HTTP response splitting). Percent-encoding turns any control character (and any non-ASCII one) into %XX, so a line break can never reach
+    the wire, while everything a real value contains (letters, digits and  space ! # $ & ' ( ) * + , / : ; = ? @ [ ] " - _ . ~) is left as it is.
+    Today every value is built from checked names; this keeps it true if a future one is not."""
+    return quote(str(value), safe=" !#$&'()*+,/:;=?@[]\"")
 COOKIE = "dp_session"
 
 
