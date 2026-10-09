@@ -179,6 +179,20 @@ def collect_server_messages(app, tmp_path, fake):
     err("POST", "/api/proposals/" + app.good + "/check", {"target": "region"})
     err("POST", "/api/proposals/" + app.good + "/approve", {"reviewer": "bob", "note": "x", "manual": "no"})
     err("POST", "/api/proposals/" + app.good + "/approve", {"reviewer": "bob", "note": "x" * 600})
+    ok = {"file": o["files"][0]["id"], "schema": o["schemas"][0]["id"], "policy": "low", "actor": "a"}       # creating a proposal from the page
+    err("POST", "/api/proposals", {**ok, "file": "../x"})
+    err("POST", "/api/proposals", {**ok, "schema": "0"})
+    err("POST", "/api/proposals", {**ok, "policy": ["low"]})
+    err("POST", "/api/proposals", {**ok, "actor": "x" * 200})
+    err("POST", "/api/proposals", [])
+    (app.data / "no_rows.csv").write_text("")
+    empty = next(f["id"] for f in c.json("GET", "/api/run/options")[1]["files"] if f["name"] == "no_rows.csv")
+    err("POST", "/api/proposals", {**ok, "file": empty})                                                     # the core's own refusal, shown on the form
+    assert app.runner._proposing.acquire(blocking=False)
+    try:
+        err("POST", "/api/proposals", ok)                                                                    # one at a time
+    finally:
+        app.runner._proposing.release()
     return c, out
 
 
@@ -418,6 +432,74 @@ def test_a_manual_mapping_and_a_refused_attempt_in_ukrainian(ukpage, app):
     page.reload()
     expect(page.locator(".banner.ok")).to_contain_text("Схвалено: Богдан")
     check_screen(page, "proposal, already decided")
+
+
+def test_the_create_a_proposal_form_in_ukrainian(ukpage, app):
+    from datapipe.sample import generate
+    from playwright.sync_api import expect
+    page = ukpage
+    page.get_by_role("link", name="Перевірка зіставлень").click()
+    expect(page.get_by_role("heading", name="Пропозиції зіставлення")).to_be_visible()
+    page.locator("#prop-box > summary").click()                                                 # proposals exist, so the form is folded: one click
+    expect(page.get_by_role("button", name="Створити пропозицію")).to_be_disabled()
+    expect(page.locator("#prop-why")).to_have_text("Щоб створити пропозицію, потрібні: файл даних та схема.")
+    expect(page.locator("#prop-actor")).to_have_value("olena")                                  # the name saved in Settings
+    check_screen(page, "review list, create form")
+    page.locator("#prop-cmd-box > summary").click()
+    expect(page.locator("#prop-cmd")).to_contain_text("--workdir")
+    check_screen(page, "review list, create form, command line")
+    generate(app.data / "big.csv", mb=2)
+    mine = {"language": "uk", "actor": "olena"}                                                   # saving settings replaces all of them: send the language and name again
+    Client(app).login().json("POST", "/api/settings", {**mine, "max_file_mb": 1})
+    page.reload()
+    page.locator("#prop-box > summary").click()
+    page.select_option("#prop-file", label=page.locator("#prop-file option", has_text="big.csv").first.inner_text())
+    page.select_option("#prop-schema", index=1)
+    page.locator("#prop-go").click()
+    expect(page.locator("#prop-msg")).to_contain_text("ліміт політики")                           # a refusal of the core, translated
+    check_screen(page, "review list, create form, a refusal")
+    Client(app).login().json("POST", "/api/settings", {**mine, "max_file_mb": None})
+    page.reload()
+    page.locator("#prop-box > summary").click()
+    page.select_option("#prop-file", label=page.locator("#prop-file option", has_text="sales_renamed.csv").first.inner_text())
+    page.select_option("#prop-schema", label=page.locator("#prop-schema option", has_text="schema_sales.json").first.inner_text())
+    page.locator("#prop-go").click()
+    expect(page.locator("#prop-flash")).to_contain_text("Пропозицію для sales_renamed.csv створено. Підтверджено: 5 · Потребують перевірки: 1 · Відхилено: 0.")
+    expect(page.locator("#prop-flash")).to_contain_text("Схвалити її має інша людина, не olena")
+    check_screen(page, "review list, a proposal was created")
+
+
+def test_the_empty_review_screen_in_ukrainian(tmp_path):
+    pw = pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import expect
+    data = tmp_path / "data"
+    data.mkdir()
+    for name in ("sales.csv", "schema_sales.json"):
+        shutil.copy(EX / name, data)
+    server = make_server(tmp_path / "work", port=0, token=TOKEN, data_dirs=[data])
+    threading.Thread(target=lambda: server.serve_forever(0.05), daemon=True).start()
+    server.runner._can_browse = True
+    Client(server).login().json("POST", "/api/settings", {"language": "uk"})
+    try:
+        with pw.sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(args=["--no-sandbox"])
+            except Exception as exc:
+                pytest.skip(f"Chromium not available: {exc}")
+            page = browser.new_page(viewport={"width": 1100, "height": 1000})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{server.port}/?t={TOKEN}")
+            page.goto(f"http://127.0.0.1:{server.port}/#/")
+            expect(page.locator("#prop-empty")).to_contain_text("Пропозицій не знайдено.")
+            expect(page.locator("#prop-empty")).to_contain_text("Пошук у:")
+            expect(page.get_by_role("button", name="Створити пропозицію")).to_be_visible()
+            check_screen(page, "review list, nothing yet")
+            browser.close()
+            assert errors == []
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_system_follows_the_browsers_first_language_and_english_stays_english(app):

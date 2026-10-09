@@ -85,6 +85,8 @@ For a file whose columns have different names than your registered schema ("Orde
     python -m datapipe approve-mapping <proposal.json> --reviewer bob [--accept-review] --out mapped_schema.json
     python -m datapipe run new_file.csv --schema mapped_schema.json ...
 
+The app does the first step without a terminal: *Review mappings > Create a proposal* (see below). It uses the offline matcher; asking a language model still needs `map --provider ...`.
+
 Design rules:
 
 1. **The LLM only suggests.** It sees column names, value *shapes* (`2026-01-05` -> `9{4}-9{2}-9{2}`) and, in the `low` tier only, up to 3 samples from columns that do not look personal. It never sees full rows and never does analysis. `regulated` refuses any external provider; `--dry-run` prints exactly what would be sent.
@@ -115,6 +117,7 @@ A local web page (no external assets, works offline) lists every proposal in `wo
 - *exactly what was sent* to the LLM, and whether anything left the machine;
 - per-item **Include / Exclude** (verified items start as include; items that need review start undecided - neither option is selected and the column is left out unless you include it; rejected items are locked). Schemas with more than 8 columns also get "Only columns that need me" and "Next to decide"; overrides and rejections need a written note;
 - **Approve** writes `work/schemas/<name>-mapped-<id>.json` (with provenance) and records the decision in the audit log; **Reject** records the reason. Each proposal can be decided once.
+- **Create a proposal** (the same tab; open on its own while the list is empty): choose a data file and a schema from the same lists as the *Run a file* tab (or a file from anywhere on the computer), a policy and your name. The built-in offline matcher guesses, the server verifies every guess against the file's real values and saves the proposal in `work/mappings/` exactly as `datapipe map` would (a test compares the two), and the list shows it with a note that a different person must approve it. The browser sends ids from the lists, never a path; the file's size and memory limits are the policy's, or the ones saved in *Settings*. Under *Prefer the command line?* the page shows the full command with this work folder filled in (`--workdir` must come before `map`, or the proposal is saved where the page does not look).
 
 All rules are enforced on the server (four-eyes, hash seal, required columns, one decision per proposal, atomically under the audit-log lock), not just in the page.
 
@@ -129,7 +132,8 @@ Limits: the reviewer's name is self-asserted (or fixed at startup with `--review
 When the provider missed a column or picked the wrong one, the reviewer can map it by hand in the
 "Use a different file column" control on each column's card (`datapipe review --data-dir DIR`, default: current directory).
 
-- The server finds the original file in a data dir by base name and **exact sha256**, parses it with the
+- The server finds the original file by base name and **exact sha256**, in a data dir or among the files you
+  chose from anywhere on the computer (a changed file is never used), parses it with the
   read options stored in the proposal, and recomputes the evidence (parse rate, uniqueness, name similarity).
   Anything the browser sends about evidence is ignored.
 - The parse-rate gate (>= 98% by default) cannot be overridden; a refused pair shows the reason.

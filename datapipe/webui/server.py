@@ -278,6 +278,8 @@ class Handler(BaseHTTPRequestHandler):
                           "/api/run/add-file": runner.add_file, "/api/run/forget-files": runner.forget_files, "/api/run/open-folder": runner.open_folder,
                           "/api/run/sample": lambda _payload: runner.make_sample()}[path]
                 return self._json(200, action(payload))
+            if path == "/api/proposals" and self.server.runner is not None:         # a new mapping proposal; the lists it picks from are the runner's
+                return self._json(200, self.server.runner.create_proposal(payload))
             m = _ROUTE_ACT.match(path)
             if not m:
                 return self._error(404, "not found")
@@ -304,8 +306,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(workdir, *, port=0, extra_dirs=(), reviewer=None, token=None, verbose=False, data_dirs=(), config_dirs=()):
-    service = ReviewService(workdir, extra_dirs=extra_dirs, fixed_reviewer=reviewer, data_dirs=data_dirs)
     settings = SettingsStore(Path(workdir).resolve())
     runner = RunService(workdir, data_dirs=data_dirs, config_dirs=config_dirs, settings=settings)
+    service = ReviewService(workdir, extra_dirs=extra_dirs, fixed_reviewer=reviewer, data_dirs=data_dirs, sources=runner.data_paths)
     return ReviewServer(("127.0.0.1", port), service, token or secrets.token_urlsafe(24),
                         secrets.token_urlsafe(24), verbose=verbose, runner=runner, settings=settings)

@@ -20,10 +20,12 @@ import zipfile
 from pathlib import Path
 
 from ..analyze import AnalysisError, _check_single_select, _run_query, build_engine, load_analysis
-from ..errors import DataPipeError
+from ..errors import AuditError, DataPipeError
 from ..identity import clean_name
 from ..ingest import read_source
-from ..audit import default_actor
+from ..audit import AuditLog, default_actor
+from ..llm.heuristic import HeuristicProvider
+from ..mapping import propose_mapping
 from ..pipeline import RUN_ID_RE, STREAM_AUTO_BYTES, _formula_risk, run_pipeline
 from ..policy import POLICIES, get_policy
 from ..schema import infer_schema, load_schema
@@ -90,6 +92,7 @@ class RunService:
         self.data_dirs = [Path(d).resolve() for d in data_dirs]
         self.config_dirs = [self.workdir / "schemas"] + [Path(d).resolve() for d in list(config_dirs) + list(data_dirs)]
         self._lock = threading.Lock()
+        self._proposing = threading.Lock()                     # one proposal at a time: each reads its whole file into memory
         self._job = {"state": "idle"}
         self._chooser = chooser or filedialog.choose_file      # the native window; tests pass a stand-in
         self._opener = opener or _open_in_file_manager         # shows a folder; tests pass a stand-in
@@ -185,6 +188,11 @@ class RunService:
     def _public(items):
         return [{"id": x["id"], "name": x["name"], "where": x["where"], "size": x["size"], "bytes": x["bytes"],
                  "chosen": x["chosen"], "folder": x["folder"]} for x in items]
+
+    def data_paths(self):
+        """Every data file the lists offer (the data folders and the files chosen from anywhere). The review looks here for the file a
+        proposal was made from, so that a column can be re-chosen on a proposal made from a file that is in no data folder."""
+        return [x["_path"] for x in self._scan()[0]]
 
     def options(self):
         data, schemas, analyses = self._scan()
@@ -427,7 +435,7 @@ class RunService:
         schema = self._pick(schemas, str(payload.get("schema", "")), "schema")
         analysis = self._pick(analyses, str(payload.get("analysis", "")), "metrics file") if payload.get("analysis") else None
         policy = payload.get("policy")
-        if policy not in POLICIES:
+        if not isinstance(policy, str) or policy not in POLICIES:                    # a list or object is unhashable: refuse it, do not crash on it
             raise ApiError(400, "choose a policy")
         actor = payload.get("actor")
         if not isinstance(actor, str) or len(actor) > 80:
@@ -590,3 +598,52 @@ class RunService:
         out.write_text(json.dumps(schema.to_dict(), indent=2) + "\n", encoding="utf-8")
         return {"saved_as": str(out), "columns": len(schema.columns),
                 "note": "A draft guessed from the file. Open it, check every type, which columns are required and which are personal data, then choose it."}
+
+    # ------------------------------------------------------------ a mapping proposal, from the lists
+    def create_proposal(self, payload):
+        """What `datapipe map` does, from the lists: the built-in offline matcher guesses which file column is which schema column,
+        every guess is checked against the file's real values, and the proposal is saved in <work folder>/mappings for a second person
+        to review. Nothing leaves this computer, and the browser sends ids from the lists, never a path."""
+        if not isinstance(payload, dict):
+            raise ApiError(400, "invalid request")
+        data, schemas, _ = self._scan()
+        file = self._pick(data, str(payload.get("file", "")), "file")
+        schema = self._pick(schemas, str(payload.get("schema", "")), "schema")
+        policy_name = payload.get("policy")
+        if not isinstance(policy_name, str) or policy_name not in POLICIES:          # not text at all (a list is unhashable) is the same refusal, not a crash
+            raise ApiError(400, "choose a policy")
+        actor = payload.get("actor")
+        if not isinstance(actor, str) or len(actor) > 80:
+            raise ApiError(400, "enter your name (1-80 characters)")
+        actor = clean_name(actor) or default_actor()
+        limits = self.settings.get()
+        if not self._proposing.acquire(blocking=False):
+            raise ApiError(409, "a proposal is already being created; wait for it to finish")
+        try:
+            try:
+                policy = get_policy(policy_name).with_limits(limits.get("max_file_mb"), limits.get("max_memory_gb"))
+                target = load_schema(schema)
+                table = read_source(file, max_bytes=policy.max_file_bytes, max_memory_bytes=policy.max_memory_bytes)
+                proposal = propose_mapping(table, target, HeuristicProvider(), policy, input_name=file.name, actor=actor,
+                                           audit=AuditLog(self.workdir / "audit.jsonl"))
+            except AuditError as exc:
+                raise ApiError(500, str(exc)[:300])
+            except DataPipeError as exc:
+                raise ApiError(400, str(exc)[:300])
+            out = self.workdir / "mappings" / f"mapping-{proposal['proposal_sha256'][:10]}.json"
+            try:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                fd, tmp = tempfile.mkstemp(dir=out.parent, suffix=".tmp")
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                        fh.write(json.dumps(proposal, indent=2) + "\n")
+                    os.replace(tmp, out)                       # whole or not at all: the review never sees half a proposal
+                finally:
+                    if os.path.exists(tmp):
+                        os.unlink(tmp)
+            except OSError as exc:
+                raise ApiError(409, f"could not save the proposal: {exc.strerror or exc}")
+        finally:
+            self._proposing.release()
+        return {"id": proposal["proposal_sha256"], "name": file.name, "actor": actor, "summary": proposal["summary"],
+                "required_unmapped": sum(1 for u in proposal["unmapped_targets"] if u["required"])}

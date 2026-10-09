@@ -378,22 +378,30 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
   // ------------------------------------------------------------------ list view
   // Every navigation gets a number; an answer that arrives for an older navigation is dropped, so a slow list can never paint over the proposal the reviewer just opened.
   var navSeq = 0;
+  // What was typed or chosen in the "Create a proposal" form survives a redraw of the page (choosing a file from the computer redraws it).
+  var propForm = { file: '', schema: '', policy: '', actor: '', open: false, flash: '' };
   function showList() {
     var seq = ++navSeq;
     clear(app);
     app.appendChild(h('p', { class: 'muted', text: t('Loading proposals…') }));
-    api('/api/proposals').then(function (data) {
+    // The form's lists are the Run tab's; if they cannot be read, the list of proposals is still shown.
+    Promise.all([api('/api/proposals'), api('/api/run/options').catch(function () { return null; })]).then(function (both) {
       if (seq !== navSeq) return;
+      var data = both[0], opts = both[1];
       clear(app);
       if (data.reviewer_fixed) document.getElementById('whoami').textContent = t('reviewing as {0}', data.reviewer_fixed);
       var listHeading = h('h2', { text: t('Mapping proposals') });
       app.appendChild(listHeading);
+      var flash = propForm.flash;                                          // said once, after a proposal was created
+      propForm.flash = '';
+      if (flash) app.appendChild(h('div', { class: 'banner ok', id: 'prop-flash', role: 'status', text: flash }));
       var pendingCount = data.proposals.filter(function (p) { return p.state === 'pending'; }).length;
-      arrived(t('Proposals'), listHeading, t('{0} proposals, {1} pending review', data.proposals.length, pendingCount));
+      arrived(t('Proposals'), listHeading, flash || t('{0} proposals, {1} pending review', data.proposals.length, pendingCount));
+      var form = opts ? proposeForm(opts, seq) : null;
       if (!data.proposals.length) {
-        app.appendChild(h('div', { class: 'card empty' },
-          h('p', { text: t('No proposals found.') }),
-          h('p', { class: 'small', text: t('Create one with: datapipe map <file> --schema <schema.json>. Looking in: {0}', data.mappings_dir) })));
+        app.appendChild(h('div', { class: 'card', id: 'prop-empty' },
+          h('p', { text: t('No proposals found.') }), form ? h('h3', { text: t('Create a proposal') }) : null, form,
+          h('p', { class: 'small muted', text: t('Looking in: {0}', data.mappings_dir) })));
       }
       var grid = h('div', { class: 'cardgrid' });
       data.proposals.forEach(function (p) {
@@ -414,11 +422,87 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         grid.appendChild(card);
       });
       if (data.proposals.length) app.appendChild(grid);
+      if (data.proposals.length && form) {                                // with proposals to look at, the form is one click away instead of in the way
+        app.appendChild(h('details', { id: 'prop-box', open: propForm.open ? '' : null }, h('summary', { text: t('Create a proposal') }), h('div', { class: 'card' }, form)));
+      }
       if (data.skipped.length) {
         app.appendChild(h('details', null, h('summary', { text: t('{0} file(s) skipped', data.skipped.length) }),
           h('ul', null, data.skipped.map(function (x) { return h('li', { class: 'small', text: x.file + ': ' + tm(x.error) }); }))));
       }
     }).catch(function (e) { if (seq === navSeq) showError(e); });
+  }
+
+  // "Create a proposal": what `datapipe map` does, from the same lists as the Run tab. The built-in offline matcher guesses, the server checks
+  // every guess against the file's real values, and nothing leaves this computer. The browser sends ids from the lists, never a path.
+  function shellQuote(s) { return /^[A-Za-z0-9_@%+=:,.\/\\-]+$/.test(s) ? s : '"' + s.replace(/"/g, '\\"') + '"'; }
+  function proposeForm(o, seq) {
+    var st = o.settings || {};
+    if (!propForm.actor) propForm.actor = st.actor || o.default_actor || '';
+    if (!propForm.policy) propForm.policy = st.policy || 'business';
+    var files = h('select', { id: 'prop-file' }, h('option', { value: '', text: o.files.length ? t('Choose a file…') : t('No data files found') }), o.files.map(opt));
+    var schemas = h('select', { id: 'prop-schema' }, h('option', { value: '', text: o.schemas.length ? t('Choose a schema…') : t('No schema files found') }), o.schemas.map(opt));
+    var policy = h('select', { id: 'prop-policy' }, o.policies.map(function (p) { return h('option', { value: p.name, text: p.name }); }));
+    var actor = h('input', { id: 'prop-actor', type: 'text', maxlength: '80', autocomplete: 'off', value: propForm.actor });
+    [['file', files], ['schema', schemas], ['policy', policy]].forEach(function (x) {
+      var wanted = propForm[x[0]];
+      if (wanted && Array.prototype.some.call(x[1].options, function (op) { return op.value === wanted; })) x[1].value = wanted;
+    });
+    var go = h('button', { type: 'button', class: 'primary', id: 'prop-go', text: t('Create a proposal') });
+    var why = h('div', { class: 'small muted', id: 'prop-why' });
+    var msg = h('div', { class: 'small', id: 'prop-msg', role: 'status' });
+    var busy = false;
+    go.setAttribute('aria-describedby', 'prop-why');
+    function remember() { propForm.file = files.value; propForm.schema = schemas.value; propForm.policy = policy.value; propForm.actor = actor.value; }
+    function refresh() {
+      remember();
+      var missing = [];
+      if (!files.value) missing.push(t('a data file'));
+      if (!schemas.value) missing.push(t('a schema'));
+      if (!actor.value.trim()) missing.push(t('your name'));
+      go.disabled = busy || missing.length > 0;
+      why.textContent = missing.length ? t('To create a proposal, choose {0}.', missing.join(', ').replace(/, ([^,]*)$/, function (m, last) { return t(' and ') + last; })) : '';
+    }
+    [files, schemas, policy].forEach(function (c) { c.addEventListener('change', refresh); });
+    actor.addEventListener('input', refresh);
+
+    // a file from anywhere on this computer: the same native window as the Run tab (the file is remembered there too)
+    var browse = h('button', { type: 'button', class: 'secondary', id: 'prop-browse', text: t('Choose a file on this computer…') });
+    browse.addEventListener('click', function () {
+      browse.disabled = true; msg.textContent = t('The file window is open. Look for it on your desktop, it may be behind this page.');
+      remember();
+      api('/api/run/add-file', { method: 'POST', body: {} }).then(function (res) {
+        if (!res.added) { msg.textContent = t('No file chosen.'); browse.disabled = false; return; }
+        if (res.added.kind === 'analysis') { msg.textContent = t('That is a metrics file: a proposal needs a data file and a schema.'); browse.disabled = false; return; }
+        propForm[res.added.kind === 'schema' ? 'schema' : 'file'] = res.added.id;
+        propForm.open = true;
+        if (seq === navSeq) showList();
+      }).catch(function (e) { msg.textContent = e.message; browse.disabled = false; });
+    });
+    var fileField = field(t('Data file'), 'prop-file', files, !o.can_browse ? t('Not in the list? Add it on the Run a file tab, where you can paste its full path.')
+      : (o.files.length ? t('Not in the list? Choose it from anywhere on this computer.') : t('Nothing in the list yet. Choose a file from anywhere on this computer.')));
+    if (o.can_browse) fileField.appendChild(h('div', { class: 'btns' }, browse));
+
+    go.addEventListener('click', function () {
+      busy = true; refresh(); msg.textContent = t('Reading the file and checking the guesses…');
+      api('/api/proposals', { method: 'POST', body: { file: files.value, schema: schemas.value, policy: policy.value, actor: actor.value.trim() } }).then(function (res) {
+        var s = res.summary || {};
+        var counts = [t('{0} verified', s.accepted || 0), t('{0} need review', s.needs_review || 0), t('{0} rejected', s.rejected || 0)];
+        if (res.required_unmapped) counts.push(t('{0} required unmapped', res.required_unmapped));
+        propForm.flash = t('Proposal created for {0}. {1}.', res.name, counts.join(' · ')) + ' ' +
+                         t('Open it below to review it. A different person than {0} must approve it, so type another name there.', res.actor);
+        propForm.file = ''; propForm.open = false;
+        if (seq === navSeq) showList();                                   // not when the reviewer has already gone elsewhere: the proposal is saved either way
+      }).catch(function (e) { busy = false; msg.textContent = e.message; refresh(); });
+    });
+    refresh();
+    return h('div', { class: 'propform' },
+      h('p', { class: 'small muted', text: t('Use this when a file’s column names are not the ones in your schema (for example “E-mail” instead of “email”). The program guesses which file column is which schema column and checks every guess against the real values in the file. Nothing leaves this computer. A different person then reviews the proposal on this page.') }),
+      h('div', { class: 'runfields' }, fileField, field(t('Schema (the file’s columns are matched to this)'), 'prop-schema', schemas), field(t('Policy'), 'prop-policy', policy),
+        field(t('Your name (recorded as the proposer)'), 'prop-actor', actor)),
+      h('div', { class: 'btns' }, go), why, msg,
+      h('details', { id: 'prop-cmd-box' }, h('summary', { text: t('Prefer the command line?') }),
+        h('p', { class: 'small', text: t('Only the command line can ask a language model instead of the built-in matcher (see Settings). Put --workdir first and make it this work folder, or the proposal is saved where this page does not look:') }),
+        h('div', { class: 'cmd', id: 'prop-cmd', text: 'python -m datapipe --workdir ' + shellQuote(o.workdir) + ' map <file> --schema <schema.json>' })));
   }
 
   function showError(e) {

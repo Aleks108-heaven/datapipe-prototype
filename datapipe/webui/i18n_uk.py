@@ -49,8 +49,23 @@ UI = {
     "Proposals": "Пропозиції",
     "{0} proposals, {1} pending review": "Пропозицій: {0}, очікують перевірки: {1}",
     "No proposals found.": "Пропозицій не знайдено.",
-    "Create one with: datapipe map <file> --schema <schema.json>. Looking in: {0}":
-        "Створіть її командою: datapipe map <файл> --schema <schema.json>. Пошук у: {0}",
+    "Looking in: {0}": "Пошук у: {0}",
+    "Create a proposal": "Створити пропозицію",
+    "Use this when a file’s column names are not the ones in your schema (for example “E-mail” instead of “email”). The program guesses which file column is which schema column and checks every guess against the real values in the file. Nothing leaves this computer. A different person then reviews the proposal on this page.":
+        "Користуйтеся цим, коли назви стовпців файлу не збігаються з назвами у вашій схемі (наприклад, “E-mail” замість “email”). Програма вгадує, який стовпець файлу якому стовпцю схеми відповідає, і перевіряє кожну здогадку за справжніми значеннями у файлі. Нічого не залишає цей комп’ютер. Потім інша людина перевіряє пропозицію на цій сторінці.",
+    "Schema (the file’s columns are matched to this)": "Схема (до неї зіставляються стовпці файлу)",
+    "Your name (recorded as the proposer)": "Ваше ім’я (записується як автор пропозиції)",
+    "To create a proposal, choose {0}.": "Щоб створити пропозицію, потрібні: {0}.",
+    "Reading the file and checking the guesses…": "Читання файлу й перевірка здогадок…",
+    "That is a metrics file: a proposal needs a data file and a schema.": "Це файл метрик: для пропозиції потрібні файл даних і схема.",
+    "Not in the list? Add it on the Run a file tab, where you can paste its full path.":
+        "Немає в списку? Додайте його на вкладці “Запуск файлу”, де можна вставити повний шлях до файлу.",
+    "Proposal created for {0}. {1}.": "Пропозицію для {0} створено. {1}.",
+    "Open it below to review it. A different person than {0} must approve it, so type another name there.":
+        "Відкрийте її нижче, щоб перевірити. Схвалити її має інша людина, не {0}, тож введіть там інше ім’я.",
+    "Prefer the command line?": "Віддаєте перевагу командному рядку?",
+    "Only the command line can ask a language model instead of the built-in matcher (see Settings). Put --workdir first and make it this work folder, or the proposal is saved where this page does not look:":
+        "Лише командний рядок може звернутися до мовної моделі замість вбудованого автономного засобу зіставлення (див. Налаштування). Вкажіть --workdir першим і задайте цю робочу папку, інакше пропозицію буде збережено там, де ця сторінка не шукає:",
     "(unnamed file)": "(файл без назви)",
     "{0} verified": "Підтверджено: {0}",
     "{0} need review": "Потребують перевірки: {0}",
@@ -470,6 +485,8 @@ SERVER = {
         "запуск уже виконується; дочекайтеся його завершення (по одному — щоб використання пам’яті було передбачуваним)",
     "there is no data folder to put the sample file in": "немає папки даних, куди можна покласти зразок файлу",
     "could not write the sample file: {0}": "не вдалося записати зразок файлу: {0}",
+    "a proposal is already being created; wait for it to finish": "пропозицію вже створюють; дочекайтеся, поки це завершиться",
+    "could not save the proposal: {0}": "не вдалося зберегти пропозицію: {0}",
     "unexpected internal error ({0}); see the terminal": "неочікувана внутрішня помилка ({0}); дивіться термінал",
     # reviewing a proposal
     "target and source are required": "потрібні ціль і джерело",

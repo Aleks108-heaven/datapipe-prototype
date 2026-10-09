@@ -40,10 +40,11 @@ def _looks_like_proposal(doc):
 
 
 class ReviewService:
-    def __init__(self, workdir, extra_dirs=(), fixed_reviewer=None, data_dirs=()):
+    def __init__(self, workdir, extra_dirs=(), fixed_reviewer=None, data_dirs=(), sources=None):
         self.workdir = Path(workdir).resolve()
         self.dirs = [self.workdir / "mappings"] + [Path(d).resolve() for d in extra_dirs]
         self.data_dirs = [Path(d).resolve() for d in data_dirs]
+        self._sources = sources or (lambda: [])   # more places an original data file may be, such as a file the person chose from anywhere; each is still checked against the recorded sha256
         self.fixed_reviewer = clean_name(fixed_reviewer) if fixed_reviewer else fixed_reviewer
         self._lock = threading.Lock()
         self._tables = {}                     # pid -> ((path, mtime_ns, size), RawTable)  (small cache)
@@ -126,16 +127,19 @@ class ReviewService:
         name = proposal["source"].get("name")
         if not isinstance(name, str) or not name or name in (".", "..") or any(c in name for c in ("/", "\\", "\0")):
             return None, "the proposal does not name a usable source file"
-        if not self.data_dirs:
-            return None, "no data folder configured: start the review with --data-dir"
         found = []
         for d in self.data_dirs:
             path = d / name
             if not path.is_symlink() and path.is_file():
                 found.append(path)
-        if not found:
-            return None, f"source file not found in the data folder(s): {name[:80]}"
-        return found, None
+        for path in self._sources():                           # a file chosen from anywhere on this computer is not in a data folder
+            if path.name == name and path not in found and not path.is_symlink() and path.is_file():
+                found.append(path)
+        if found:
+            return found, None
+        if not self.data_dirs:
+            return None, "no data folder configured: start the review with --data-dir"
+        return None, f"source file not found in the data folder(s): {name[:80]}"
 
     def _source_table(self, proposal):
         """(RawTable | None, reason). Only a file with the exact recorded sha256 is ever used, and it is parsed
