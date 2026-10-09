@@ -24,6 +24,8 @@ _TEMPLATE = r"""<!doctype html>
   --ok:#17692f; --ok-bg:#e4f3e8; --warn:#8a5200; --warn-bg:#fff1d0; --bad:#a8231b; --bad-bg:#fce6e3;
   --radius:12px; --r-sm:8px; --r-md:10px; --r-pill:999px;
   --tap:44px; --tap-sm:40px; --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:48px; --fs-xs:.8rem; --fs-sm:.9rem; --fs-md:.9rem; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --page-max:1440px;   /* the widest the page grows: a big screen gets more room, but a row is never stretched across all of it. The one number to change for a wider or narrower page */
+  --measure:66ch;      /* the longest line of running text: about 70 to 80 characters in English and Ukrainian (WCAG 1.4.8 asks for at most 80) */
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme=light]){
@@ -51,7 +53,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:1rem/1.5 system-ui,-ap
 header.top{display:flex;align-items:center;gap:var(--s3);padding:var(--s4) var(--s4);border-bottom:1px solid var(--line);background:var(--surface)}
 header.top h1{font-size:1.05rem;margin:0;font-weight:650}
 header.top .sub{color:var(--muted);font-size:var(--fs-sm)}
-main{max-width:920px;margin:0 auto;padding:var(--s4) var(--s4) var(--s6);overflow-wrap:anywhere}      /* file names and column names are one long token: they must wrap, never widen the page (WCAG 1.4.10) */
+main{max-width:var(--page-max);margin:0 auto;padding:var(--s4) var(--s4) var(--s6);overflow-wrap:anywhere}      /* file names and column names are one long token: they must wrap, never widen the page (WCAG 1.4.10) */
 a,button{font:inherit}
 button{overflow-wrap:normal}
 .titlerow{align-items:center;flex-wrap:nowrap}
@@ -77,6 +79,14 @@ h2.tight{margin-top:var(--s3)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--s4) var(--s4);margin:0 0 var(--s3)}
 .card.click{cursor:pointer}
 .card.click:hover{border-color:var(--accent)}
+/* Running text keeps a readable line however wide the page is; boxes, rows, tables and form grids use the room. :where() keeps this rule weak, so a component can lift it. */
+main :where(p,ul,ol,div.small:not(.row),.quote,.locked,.undecided,.superseded){max-width:var(--measure)}
+.statusline p,.metaline,.card.click div.small{max-width:none}            /* a flex item that has to grow, the two facts a reviewer needs before deciding, and a list card's one line of details: all stay as laid out */
+.empty p{margin-left:auto;margin-right:auto}                             /* centred in its card, not at the left of a centred block */
+/* Cards go side by side once there is room for two. A lone card keeps its own width instead of stretching across the page; min(100%,36rem) stops one column overflowing a phone. */
+.cardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,36rem),1fr));gap:var(--s3);margin:0 0 var(--s3)}
+.cardgrid>.card{margin:0}
+.cardgrid>.empty{grid-column:1 / -1}
 .row{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
 .spread{justify-content:space-between}
 .badge{display:inline-block;padding:2px var(--s2);border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;border:1px solid transparent}
@@ -123,7 +133,7 @@ ul.reasons.rej{color:var(--bad)}
 @media (min-width:900px){
   main{padding-bottom:140px}
   .actionbar{position:fixed;left:0;right:0;bottom:0;border-radius:0;border-width:1px 0 0;margin:0;padding:var(--s2) var(--s4);z-index:5}
-  .actionbar .inner{max-width:920px;margin:0 auto;gap:var(--s1) var(--s3);grid-template-columns:1fr auto;align-items:end}
+  .actionbar .inner{max-width:calc(var(--page-max) - 2 * var(--s4));margin:0 auto;gap:var(--s1) var(--s3);grid-template-columns:1fr auto;align-items:end}      /* the width of the page's own content, so the bar lines up with the cards above it */
   .actionbar .inner>.btns{flex-wrap:nowrap}
   .actionbar .inner>.msgs{grid-column:1 / -1}
   .actionbar textarea{min-height:40px;height:40px}
@@ -165,13 +175,14 @@ header.top nav a{color:var(--text);text-decoration:none;padding:var(--s2) var(--
 header.top nav a[aria-current=page]{background:var(--accent);color:var(--accent-ink);font-weight:650}
 header.top nav a:focus-visible,a.dl:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .runfields{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--s3);margin:var(--s3) 0}
+@media (min-width:900px){.runfields{grid-template-columns:repeat(3,minmax(0,1fr))}}      /* three to a row, however wide the page: room for a whole file name in each list, and the rows line up */
 .runfield select,.runfield input{width:100%}
 a.dl{display:inline-flex;align-items:center;min-height:var(--tap);padding:var(--s2) var(--s4);border:1px solid var(--line-strong);border-radius:var(--r-md);color:var(--text);text-decoration:none}
 a.dl:hover{border-color:var(--accent)}
 a.dl.main{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:650}
 a.dl.small{min-height:var(--tap-sm);font-size:var(--fs-sm);margin-top:var(--s2)}
 .tablecard{overflow-x:auto}
-table.metric{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
+table.metric{border-collapse:collapse;width:auto;min-width:min(100%,30rem);font-size:var(--fs-sm)}      /* as wide as its columns need: on a wide page a value stays next to its label instead of far across the card; a table with many columns still scrolls inside its card */
 table.metric caption{text-align:left;font-weight:650;padding-bottom:var(--s2);text-transform:capitalize}
 table.metric th,table.metric td{text-align:left;padding:var(--s1) var(--s3);border-bottom:1px solid var(--line);white-space:nowrap}
 table.metric th{color:var(--muted);font-weight:600}
@@ -384,6 +395,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
           h('p', { text: t('No proposals found.') }),
           h('p', { class: 'small', text: t('Create one with: datapipe map <file> --schema <schema.json>. Looking in: {0}', data.mappings_dir) })));
       }
+      var grid = h('div', { class: 'cardgrid' });
       data.proposals.forEach(function (p) {
         var s = p.summary || {};
         var card = h('div', { class: 'card click', role: 'link', tabindex: '0' },
@@ -399,8 +411,9 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         var open = function () { location.hash = '#/p/' + p.id; };
         card.addEventListener('click', open);
         card.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } });
-        app.appendChild(card);
+        grid.appendChild(card);
       });
+      if (data.proposals.length) app.appendChild(grid);
       if (data.skipped.length) {
         app.appendChild(h('details', null, h('summary', { text: t('{0} file(s) skipped', data.skipped.length) }),
           h('ul', null, data.skipped.map(function (x) { return h('li', { class: 'small', text: x.file + ': ' + tm(x.error) }); }))));
@@ -453,7 +466,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     var rejectBtn = h('button', { class: 'secondary danger', id: 'reject', type: 'button', text: t('Reject proposal') });
     var why = h('div', { class: 'why', id: 'why' });
     var errBox = h('div', { class: 'err', id: 'errbox', role: 'alert' });
-    var itemsBox = h('div', { id: 'items' });
+    var itemsBox = h('div', { id: 'items', class: 'cardgrid' });
     var summaryBox = h('p', { class: 'small', id: 'summary' });
     var jumpBtn = h('button', { type: 'button', class: 'secondary small jump', text: t('Go to approve / reject'),
                                 onclick: function () { bar.scrollIntoView({ block: 'end' }); (decided || st.result ? bar : reviewer).focus(); } });
