@@ -25,7 +25,7 @@ _TEMPLATE = r"""<!doctype html>
   --radius:12px; --r-sm:8px; --r-md:10px; --r-pill:999px;
   --tap:44px; --tap-sm:40px; --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:48px; --fs-xs:.8rem; --fs-sm:.9rem; --fs-md:.9rem; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --page-max:1440px;   /* the widest the page grows: a big screen gets more room, but a row is never stretched across all of it. The one number to change for a wider or narrower page */
-  --measure:66ch;      /* the longest line of running text: about 70 to 80 characters in English and Ukrainian (WCAG 1.4.8 asks for at most 80) */
+  --measure:34em;      /* the longest line of running text: about 65 to 80 characters (WCAG 1.4.8 asks for at most 80). In em, not ch: the width of a digit varies between system fonts far more than the width of a letter, and 66ch held 90 characters a line on macOS */
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme=light]){
