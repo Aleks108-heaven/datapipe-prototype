@@ -256,7 +256,7 @@ def test_choosing_a_file_on_this_computer_fills_the_form_with_it(page, app, tmp_
     app.runner._chooser = lambda: elsewhere                                                       # the file window is native: a stand-in answers
     page.locator("#prop-actor").fill("anna")
     page.locator("#prop-browse").click()
-    page.wait_for_function("document.querySelector('#prop-file').selectedOptions[0].text.includes('supplier_jan.csv')")
+    expect(page.locator("#prop-file option:checked")).to_contain_text("supplier_jan.csv")        # a locator, not wait_for_function(string): the page's CSP forbids eval
     assert page.locator("#prop-actor").input_value() == "anna"                                    # what was typed survives the redraw
     choose(page, "#prop-schema", "schema_sales.json")
     page.locator("#prop-go").click()
