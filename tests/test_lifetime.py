@@ -126,6 +126,100 @@ def test_only_the_mac_app_stops_by_itself_without_being_asked(monkeypatch):
     assert not cli._in_mac_app()
 
 
+class FakeTk:
+    """Stands in for tkinter: a root whose event loop runs until quit() is called, and which can replay what macOS would send."""
+
+    def __init__(self, events=(), broken=False):
+        self.events, self.broken, self.root = list(events), broken, None
+
+    def Tk(self):
+        if self.broken:
+            raise RuntimeError("no window server")
+        self.root = FakeRoot(self.events)
+        return self.root
+
+
+class FakeRoot:
+    def __init__(self, events):
+        self.commands, self.withdrawn, self.events, self._quit, self.after_calls = {}, False, events, threading.Event(), []
+
+    def withdraw(self):
+        self.withdrawn = True
+
+    def createcommand(self, name, func):
+        self.commands[name] = func
+
+    def after(self, ms, func):
+        self.after_calls.append(ms)
+        func()
+
+    def quit(self):
+        self._quit.set()
+
+    def mainloop(self):
+        for name in self.events:                                  # what macOS sends while the app runs
+            self.commands[name]()
+        assert self._quit.wait(5), "the event loop was never ended"
+
+
+class FakeServer:
+    def __init__(self, ends_by_itself=False):
+        self.ends_by_itself, self.ended, self.closed, self.shutdowns = ends_by_itself, threading.Event(), False, 0
+
+    def serve_forever(self):
+        if not self.ends_by_itself:
+            assert self.ended.wait(5), "the server was never asked to stop"
+
+    def shutdown(self):
+        self.shutdowns += 1
+        self.ended.set()
+
+    def server_close(self):
+        self.closed = True
+
+
+def test_the_mac_app_listens_to_macos_and_quit_ends_the_server_too():
+    tk, server = FakeTk(events=["tk::mac::Quit"]), FakeServer()
+    assert cli._serve_in_mac_app(server, "http://127.0.0.1:1/?t=x", load_tk=lambda: tk) is True
+    assert tk.root.withdrawn and set(tk.root.commands) == {"tk::mac::Quit", "tk::mac::ReopenApplication"}
+    assert server.ended.is_set() and server.closed and server.shutdowns == 1
+
+
+def test_when_the_server_ends_by_itself_the_event_loop_ends_too():
+    tk, server = FakeTk(), FakeServer(ends_by_itself=True)                    # the Stop button, or the page was closed
+    assert cli._serve_in_mac_app(server, "http://127.0.0.1:1/?t=x", load_tk=lambda: tk) is True
+    assert tk.root.after_calls == [0] and server.closed
+
+
+def test_opening_the_mac_app_again_shows_the_page_again(monkeypatch, capsys):
+    import webbrowser
+    opened = []
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+    monkeypatch.delenv("DATAPIPE_NO_BROWSER", raising=False)
+    tk, server = FakeTk(events=["tk::mac::ReopenApplication", "tk::mac::Quit"]), FakeServer()
+    assert cli._serve_in_mac_app(server, "http://127.0.0.1:7/?t=secret&go=run", load_tk=lambda: tk)
+    assert opened == ["http://127.0.0.1:7/?t=secret&go=run"]
+    monkeypatch.setenv("DATAPIPE_NO_BROWSER", "1")                              # tests and CI: say so instead of opening a browser
+    cli._show_again("http://127.0.0.1:7/?t=secret&go=run")
+    assert opened == ["http://127.0.0.1:7/?t=secret&go=run"] and "opened again" in capsys.readouterr().err
+
+
+def test_without_tk_or_a_window_server_the_mac_app_serves_the_plain_way():
+    assert cli._serve_in_mac_app(FakeServer(), "x", load_tk=lambda: FakeTk(broken=True)) is False
+
+    def no_tk():
+        raise ImportError("no tkinter")
+    assert cli._serve_in_mac_app(FakeServer(), "x", load_tk=no_tk) is False
+
+
+def test_only_the_mac_app_ever_loads_tk():
+    """Windows and Linux builds do not carry Tk, so nothing outside the Mac branch may import it."""
+    import ast
+    tree = ast.parse((ROOT / "datapipe" / "cli.py").read_text(encoding="utf-8"))
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    assert "tkinter" not in imported and "Tkinter" not in imported
+
+
 def test_a_double_click_from_finder_may_add_a_process_number_and_is_still_a_double_click(monkeypatch, tmp_path):
     seen = {}
     monkeypatch.setattr(cli, "_double_click_args", lambda: ["--workdir", str(tmp_path), "app", "--data-dir", str(tmp_path)])

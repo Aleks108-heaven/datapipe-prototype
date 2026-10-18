@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -295,6 +296,8 @@ def _cmd_review(args):
     if exit_when_closed:
         print("This copy stops by itself a few seconds after its page is closed.", flush=True)
         threading.Thread(target=_stop_when_closed, args=(server,), daemon=True).start()
+    if _in_mac_app() and _serve_in_mac_app(server, link):
+        return 0
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -302,6 +305,50 @@ def _cmd_review(args):
     finally:
         server.server_close()
     return 0
+
+
+def _show_again(link):
+    """The app was opened a second time (a double-click, or its Dock icon): show the page again. The tests and CI set the variable so that no browser opens."""
+    if os.environ.get("DATAPIPE_NO_BROWSER"):
+        print("The app was opened again: showing the page.", file=sys.stderr, flush=True)
+        return
+    try:
+        import webbrowser
+        webbrowser.open(link)
+    except Exception:
+        pass
+
+
+def _serve_in_mac_app(server, link, load_tk=None):
+    """The Mac app has to answer macOS: Quit from the Dock or Cmd-Q, logging out, and "the app was opened again" (which shows the page again,
+    instead of nothing happening). A program that never listens to macOS does none of this; Tk, which comes with Python, listens, so the
+    web server runs in a thread beside Tk's event loop. False when there is no Tk or no window server: the program then serves in the plain way."""
+    try:
+        tk = (load_tk or (lambda: importlib.import_module("tkinter")))()
+        root = tk.Tk()
+    except Exception:
+        return False
+    root.withdraw()                                            # no window: the page in the browser is the program's face
+    root.createcommand("tk::mac::Quit", root.quit)
+    root.createcommand("tk::mac::ReopenApplication", lambda *_: _show_again(link))
+
+    def serve():
+        try:
+            server.serve_forever()
+        finally:
+            try:
+                root.after(0, root.quit)                       # the server ended by itself (Stop button, page closed): end the event loop too
+            except Exception:
+                pass
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        root.mainloop()
+    finally:
+        server.shutdown()                                      # macOS asked to quit: end the server (returns at once if it has ended already)
+        thread.join(10)
+        server.server_close()
+    return True
 
 
 def _stop_when_closed(server):

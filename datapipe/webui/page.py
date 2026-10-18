@@ -101,8 +101,9 @@ main :where(p,ul,ol,div.small:not(.row),.quote,.locked,.undecided,.superseded){m
 .banner.bad{background:var(--bad-bg);color:var(--bad);border-color:var(--bad)}
 .banner.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
 .banner.warn{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
-.lostbar{width:calc(100% - 2 * var(--s4));max-width:calc(var(--page-max) - 2 * var(--s4));margin:var(--s3) auto 0;border-radius:var(--radius);padding:var(--s3) var(--s4);
-  background:var(--bad-bg);color:var(--bad);border:1px solid var(--bad);font-weight:600}      /* the width of the page's own content; not .banner, which the pages' own messages use */
+.lostbar{position:sticky;top:var(--s2);z-index:20;box-shadow:0 2px 10px rgba(0,0,0,.25);        /* stays in view however far the page is scrolled: it is the only sign that the program is gone */
+  width:calc(100% - 2 * var(--s4));max-width:calc(var(--page-max) - 2 * var(--s4));margin:var(--s3) auto 0;border-radius:var(--radius);padding:var(--s3) var(--s4);
+  background:linear-gradient(var(--bad-bg),var(--bad-bg)) var(--bg);color:var(--bad);border:1px solid var(--bad);font-weight:600}      /* the tint over the page colour, so nothing shows through it; the width of the page's own content; not .banner, which the pages' own messages use */
 .lostbar[hidden]{display:none}
 dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:var(--s1) var(--s4);margin:0}
 dl.meta dt{color:var(--muted)}
