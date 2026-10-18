@@ -101,6 +101,9 @@ main :where(p,ul,ol,div.small:not(.row),.quote,.locked,.undecided,.superseded){m
 .banner.bad{background:var(--bad-bg);color:var(--bad);border-color:var(--bad)}
 .banner.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
 .banner.warn{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.lostbar{width:calc(100% - 2 * var(--s4));max-width:calc(var(--page-max) - 2 * var(--s4));margin:var(--s3) auto 0;border-radius:var(--radius);padding:var(--s3) var(--s4);
+  background:var(--bad-bg);color:var(--bad);border:1px solid var(--bad);font-weight:600}      /* the width of the page's own content; not .banner, which the pages' own messages use */
+.lostbar[hidden]{display:none}
 dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:var(--s1) var(--s4);margin:0}
 dl.meta dt{color:var(--muted)}
 dl.meta dd{margin:0;overflow-wrap:anywhere}
@@ -227,6 +230,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
 <header class="top"><h1>datapipe</h1>
 <nav aria-label="Sections"><a href="#/run" id="nav-run" aria-label="Run a file">Run<span class="navtext"> a file</span></a><a href="#/" id="nav-review" aria-label="Review mappings">Review<span class="navtext"> mappings</span></a><a href="#/settings" id="nav-settings" class="gear" aria-label="Settings"><span aria-hidden="true">⚙</span><span class="navtext"> Settings</span></a></nav>
 <span class="sub" id="whoami"></span></header>
+<div id="lost" class="lostbar" role="alert" hidden></div>
 <main id="app"></main>
 <div id="status" class="sr-only" role="status" aria-live="polite"></div>
 <script nonce="{{NONCE}}">
@@ -1490,6 +1494,12 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
         .catch(function (e) { auditMsg.textContent = e.message; });
     } });
     var auditMsg = h('div', { class: 'small', id: 'set-audit-msg', role: 'status' });
+    var stopMsg = h('div', { class: 'small', id: 'set-stop-msg', role: 'status' });
+    var stop = h('button', { type: 'button', class: 'secondary small', id: 'set-stop', text: t('Stop datapipe'), onclick: function () {
+      if (!window.confirm(t('Stop datapipe now? Nothing is lost; you can start it again later like any other program.'))) return;
+      stopMsg.textContent = t('Stopping…');
+      api('/api/quit', { method: 'POST', body: {} }).then(showStopped).catch(function (e) { stopMsg.textContent = e.message; });
+    } });
     function row(dt, dd) { return [h('dt', { text: dt }), h('dd', { text: dd })]; }
     app.appendChild(h('div', { class: 'card', id: 'set-card-about' }, h('h3', { text: t('About this installation') }), h('dl', { class: 'meta' },
       row(t('Version'), 'datapipe ' + info.version + (info.frozen ? ' ' + t('(standalone program)') : '')),
@@ -1497,7 +1507,7 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
       row(t('System'), info.system),
       row(t('Work folder (results, audit log, settings)'), info.workdir),
       row(t('Folders it reads data from'), info.folders.length ? info.folders.join('   ') : t('(none)'))),
-      h('div', { class: 'btns' }, audit), auditMsg));
+      h('div', { class: 'btns' }, audit, stop), auditMsg, stopMsg));
   }
 
   // ------------------------------------------------------------------ routing
@@ -1530,6 +1540,39 @@ html{scroll-padding-top:72px;scroll-padding-bottom:150px}              /* focus 
     route();
   });
   if (fixedReviewer) document.getElementById('whoami').textContent = t('reviewing as {0}', fixedReviewer);
+
+  // ---- is the program still there? Every open page says so every 20 seconds and says goodbye when it is closed or reloaded; that is how
+  // the Mac app (which has no window of its own) knows when to stop. If the answers stop, the page says so instead of failing quietly.
+  var PAGE_ID = 'p' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+  var lostBox = document.getElementById('lost');
+  var missed = 0, stopped = false;
+  function beat() {
+    if (stopped) return;
+    api('/api/page/alive', { method: 'POST', body: { id: PAGE_ID } })
+      .then(function () { missed = 0; lostBox.hidden = true; })
+      .catch(function () {
+        if (++missed < 2 || stopped) return;
+        lostBox.textContent = t('datapipe is no longer answering: it was stopped, or this page is out of date. Start datapipe again, then open the new page it shows.');
+        lostBox.hidden = false;
+      });
+  }
+  var beating = setInterval(beat, 20000);
+  beat();
+  window.addEventListener('pagehide', function () {
+    if (stopped) return;
+    try {
+      fetch('/api/page/bye', { method: 'POST', keepalive: true, credentials: 'same-origin',
+                               headers: { 'Content-Type': 'application/json', 'X-DataPipe-CSRF': csrf }, body: JSON.stringify({ id: PAGE_ID }) }).catch(function () {});
+    } catch (e) { /* the page is going away anyway */ }
+  });
+  window.addEventListener('pageshow', function (ev) { if (ev.persisted) beat(); });             // back from the browser's page cache: tell the server again
+  function showStopped() {
+    stopped = true; clearInterval(beating); lostBox.hidden = true; unsaved = null;
+    clear(app);
+    var heading = h('h2', { text: t('datapipe has stopped') });
+    app.appendChild(h('div', { class: 'card', id: 'stopped-card' }, heading, h('p', { text: t('You can close this tab. To use datapipe again, start the program again.') })));
+    arrived(t('Stopped'), heading, t('datapipe has stopped'));
+  }
   route();
 })();
 </script>

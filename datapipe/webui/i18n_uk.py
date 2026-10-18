@@ -353,6 +353,16 @@ UI = {
     "Nothing saved yet. The map command then uses the built-in offline matcher, or the address you give it.":
         "Поки нічого не збережено. Тоді команда map використовує вбудований автономний засіб зіставлення або адресу, яку ви їй дасте.",
     "Checking…": "Перевірка…",
+    "Stop datapipe": "Зупинити datapipe",
+    "Stopping…": "Зупинка…",
+    "Stop datapipe now? Nothing is lost; you can start it again later like any other program.":
+        "Зупинити datapipe зараз? Нічого не буде втрачено; пізніше його можна запустити знову, як будь-яку іншу програму.",
+    "datapipe has stopped": "datapipe зупинено",
+    "Stopped": "Зупинено",
+    "You can close this tab. To use datapipe again, start the program again.":
+        "Цю вкладку можна закрити. Щоб знову користуватися datapipe, запустіть програму ще раз.",
+    "datapipe is no longer answering: it was stopped, or this page is out of date. Start datapipe again, then open the new page it shows.":
+        "datapipe більше не відповідає: його зупинено, або ця сторінка застаріла. Запустіть datapipe знову й відкрийте нову сторінку, яку воно покаже.",
     "(answered in {0} ms)": "(відповів за {0} мс)",
     "The model “{0}” is not one of them.": "Моделі “{0}” серед них немає.",
     "Click the Model box to pick one.": "Клацніть поле “Модель”, щоб вибрати одну.",
@@ -483,6 +493,7 @@ SERVER = {
     "this run has no metrics": "у цьому запуску немає метрик",
     "a run is already in progress; wait for it to finish (one at a time keeps memory use predictable)":
         "запуск уже виконується; дочекайтеся його завершення (по одному — щоб використання пам’яті було передбачуваним)",
+    "a run is in progress; wait for it to finish, then stop datapipe": "триває запуск; дочекайтеся його завершення, а потім зупиніть datapipe",
     "there is no data folder to put the sample file in": "немає папки даних, куди можна покласти зразок файлу",
     "could not write the sample file: {0}": "не вдалося записати зразок файлу: {0}",
     "a proposal is already being created; wait for it to finish": "пропозицію вже створюють; дочекайтеся, поки це завершиться",

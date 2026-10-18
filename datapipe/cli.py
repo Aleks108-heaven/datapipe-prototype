@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 from .audit import AuditLog
@@ -106,6 +108,8 @@ def build_parser():
     ap.add_argument("--dir", action="append", default=[], help="extra folder with proposal JSON files (repeatable)")
     ap.add_argument("--reviewer", help="lock the reviewer name for this session")
     ap.add_argument("--no-browser", action="store_true", help="only print the link")
+    ap.add_argument("--exit-when-closed", action="store_true",
+                    help="stop by itself shortly after the page is closed, never during a run (the Mac app has no window to close, so it does this)")
     ap.add_argument("--verbose", action="store_true")
 
     sub.add_parser("verify-audit", help="check the audit log hash chain")
@@ -121,8 +125,13 @@ def _double_click_args():
     return ["--workdir", str(home / "work"), "app", "--data-dir", str(home / "files")]
 
 
+def _in_mac_app():
+    """Running as the program inside datapipe.app (started from Finder or the Dock): there is no terminal, so no way to see the link or press Ctrl-C."""
+    return sys.platform == "darwin" and getattr(sys, "frozen", False) and ".app/Contents/MacOS/" in str(sys.executable)
+
+
 def main(argv=None):
-    if argv is None and len(sys.argv) == 1 and getattr(sys, "frozen", False):
+    if argv is None and getattr(sys, "frozen", False) and not [a for a in sys.argv[1:] if not a.startswith("-psn_")]:     # Finder may add -psn_...
         argv = _double_click_args()
     args = build_parser().parse_args(argv)
     try:
@@ -254,11 +263,20 @@ def _data_dirs(args, is_app):
 def _cmd_review(args):
     from .webui import make_server
     is_app = args.cmd == "app"
+    exit_when_closed = is_app and (args.exit_when_closed or _in_mac_app())
     examples = _examples_dir()
+
+    def build(port):
+        return make_server(args.workdir, port=port, extra_dirs=args.dir, reviewer=args.reviewer,
+                           verbose=args.verbose, data_dirs=_data_dirs(args, is_app),
+                           config_dirs=[examples] if is_app and examples.is_dir() else [])
     try:
-        server = make_server(args.workdir, port=args.port, extra_dirs=args.dir, reviewer=args.reviewer,
-                             verbose=args.verbose, data_dirs=_data_dirs(args, is_app),
-                             config_dirs=[examples] if is_app and examples.is_dir() else [])
+        try:
+            server = build(args.port)
+        except OSError:
+            if not exit_when_closed or not args.port:
+                raise
+            server = build(0)                  # nobody can read an error message here, and a second copy may already be running: take any free port
     except OSError as exc:
         raise DataPipeError(f"cannot listen on 127.0.0.1:{args.port} ({exc.strerror or exc}). Another review may already be "
                             "running there - stop it, or use --port 0 to pick a free port.")
@@ -274,6 +292,9 @@ def _cmd_review(args):
             pass
     print("The link contains a secret that is valid until you stop the server; do not share it. Press Ctrl-C to stop.")
     print("To use it from another machine, tunnel the port over SSH instead of exposing it.")
+    if exit_when_closed:
+        print("This copy stops by itself a few seconds after its page is closed.", flush=True)
+        threading.Thread(target=_stop_when_closed, args=(server,), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -281,3 +302,13 @@ def _cmd_review(args):
     finally:
         server.server_close()
     return 0
+
+
+def _stop_when_closed(server):
+    """Watches the pages from the side and ends serve_forever() when the last one has gone (never during a run)."""
+    while True:
+        time.sleep(1)
+        if server.watch.should_stop(busy=server.runner.busy() if server.runner else False):
+            print("The page was closed: stopping.", flush=True)
+            server.shutdown()
+            return

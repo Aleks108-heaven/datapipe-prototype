@@ -419,6 +419,12 @@ class RunService:
         return out.getvalue()
 
     # ------------------------------------------------------------ starting
+    def busy(self):
+        """Is there work that stopping the program would cut off (a run, or a mapping proposal being made)?"""
+        with self._lock:
+            running = self._job["state"] == "running"
+        return running or self._proposing.locked()
+
     def status(self):
         with self._lock:
             job = dict(self._job)

@@ -11,18 +11,21 @@ import os
 import re
 import secrets
 import sys
+import threading
 import traceback
 from pathlib import Path
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlsplit
 
+from .lifetime import PageWatch
 from .page import render_page
 from .runner import RunService
 from .service import ApiError, ReviewService
 from .settings import SettingsStore
 
 MAX_BODY = 64 * 1024
+_PAGE_ID = re.compile(r"[A-Za-z0-9_-]{8,64}\Z")
 _ID = r"[0-9a-f]{64}"
 # \Z, not $: a "$" also matches just before a trailing newline, and these patterns decide what may reach a file name and a header
 _ROUTE_ONE = re.compile(rf"^/api/proposals/({_ID})\Z")
@@ -49,6 +52,7 @@ class ReviewServer(ThreadingHTTPServer):
     def __init__(self, addr, service, token, csrf, verbose=False, runner=None, settings=None):
         self.service, self.token, self.csrf, self.verbose, self.runner = service, token, csrf, verbose, runner
         self.settings = settings
+        self.watch = PageWatch()            # which pages are open; only the Mac app (no window of its own) acts on it
         super().__init__(addr, Handler)
         self.port = self.server_address[1]
         self.allowed_hosts = {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
@@ -261,6 +265,18 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._error(400, "body is not valid JSON")
             path = urlsplit(self.path).path
+            if path in ("/api/page/alive", "/api/page/bye"):
+                page_id = payload.get("id") if isinstance(payload, dict) else None
+                if not isinstance(page_id, str) or not _PAGE_ID.match(page_id):
+                    return self._error(400, "invalid request")
+                (self.server.watch.alive if path.endswith("alive") else self.server.watch.bye)(page_id)
+                return self._json(200, {"ok": True})
+            if path == "/api/quit":
+                if self.server.runner is not None and self.server.runner.busy():
+                    return self._error(409, "a run is in progress; wait for it to finish, then stop datapipe")
+                self._json(200, {"ok": True})
+                threading.Thread(target=self.server.shutdown, daemon=True).start()          # after the answer is out; shutdown() waits for the loop
+                return
             if path == "/api/settings" and self.server.settings is not None:
                 return self._json(200, {"settings": self.server.settings.update(payload)})
             if path == "/api/settings/llm-key" and self.server.settings is not None:
