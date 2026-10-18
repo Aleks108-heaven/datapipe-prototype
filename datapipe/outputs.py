@@ -61,7 +61,7 @@ def write_quarantine_files(run_dir, columns, schema, policy, quarantined):
     issues = []
     with open(run_dir / "quarantine.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["row", "rules", "messages"] + list(columns))
+        w.writerow(["row", "rules", "messages"] + [csv_safe(c) for c in columns])         # a column name comes from the file, like any cell
         for q in quarantined:
             raw = q.raw or {}
             cells = []
