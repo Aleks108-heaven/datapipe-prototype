@@ -254,6 +254,39 @@ def run_pipeline(input_path, *, workdir, policy_name, schema_path=None, analysis
 
 
 # ------------------------------------------------------------------ outputs
+def _scope_lines(doc):
+    """What the numbers rest on and what was not checked, so that a report is not read as more than it is."""
+    out = ["", "## Checks and limits"]
+    counts, results, policy = doc.get("counts"), doc.get("results"), doc.get("policy") or {}
+    if counts and results is not None and counts["rows_total"]:
+        total, valid, bad = counts["rows_total"], counts["valid"], counts["quarantined"]
+        if bad:
+            out.append(f"- Coverage: the metrics use {valid:,} of {total:,} rows ({valid / total:.1%}); the {bad:,} quarantined rows are not in them.")
+            if bad / total > 0.05:
+                out.append("- Look at quarantine.csv before relying on these numbers: more than 5% of the rows were set aside.")
+        else:
+            out.append(f"- Coverage: all {total:,} rows passed the checks and are in the metrics.")
+        recon = results.get("reconciliation") or {}
+        if recon.get("checks"):
+            out.append(f"- Built-in column statistics were computed twice, in DuckDB and in plain Python: {recon['checks']:,} comparisons, "
+                       f"{len(recon.get('mismatches') or [])} disagreements.")
+        elif results.get("profile") is None:
+            out.append("- Built-in column statistics were not requested by the analysis file, so none were cross-checked.")
+        skipped = recon.get("not_checked") or []
+        if skipped:
+            names = ", ".join(sorted({f"{s['statistic']} of {s['column']}" for s in skipped}))
+            out.append(f"- Not cross-checked (too many different values to track): {names}. The other statistics were.")
+    if policy:
+        action = "refused" if policy.get("row_errors") == "block" else "set aside in quarantine.csv"
+        out.append(f"- Policy {policy.get('name')}: a row that fails a check is {action}; the run stops if more than "
+                   f"{policy.get('max_error_rate', 0):.0%} of the rows fail; personal data is {'masked' if policy.get('mask_pii') else 'not masked'}. "
+                   f"Limits: {policy.get('max_file_bytes', 0) // 1024 ** 2:,} MB per file, about {policy.get('max_memory_bytes', 0) / 1024 ** 3:.0f} GB of memory.")
+    engine = doc.get("engine") or {}
+    out.append(f"- Produced by datapipe {engine.get('datapipe', '?')} with DuckDB {engine.get('duckdb', '?')}"
+               + (f"; this run closes at audit record {doc['audit_head'][:12]} (check the chain with: datapipe verify-audit)." if doc.get("audit_head") else "."))
+    return out
+
+
 def _write_report(run_dir, doc):
     lines = [f"# Run {doc['run_id']}", "", f"**Status:** {doc['status']}", ""]
     for r in doc["reasons"]:
@@ -272,6 +305,7 @@ def _write_report(run_dir, doc):
             lines += [f"  - {rule}: {n}" for rule, n in sorted(c["issues_by_rule"].items())]
     if doc["warnings"]:
         lines += ["", "## Warnings"] + [f"- {w}" for w in doc["warnings"]]
+    lines += _scope_lines(doc)
     if doc["counts"] and doc["counts"]["quarantined"]:
         lines += ["", "## Bad rows", "- see quarantine.csv (the rows and why) and issues.json.",
                   "- \"row N\" is the N-th data record after the header (blank lines are skipped, and a value that spans several "
