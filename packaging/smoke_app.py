@@ -34,7 +34,7 @@ def check(condition, message):
 
 
 def main(argv):
-    program = argv[1]
+    program = os.path.abspath(argv[1])                 # the program runs in a folder of its own, so a relative path would no longer lead to it
     unchanged = argv[argv.index("--unchanged") + 1] if "--unchanged" in argv else None
     before = snapshot(unchanged) if unchanged else None
     work = Path(tempfile.mkdtemp(prefix="datapipe-smoke-"))

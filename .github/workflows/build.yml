@@ -194,14 +194,26 @@ jobs:
           echo "the app started by macOS answers (401 without its secret link)"
           pgrep -fl "datapipe.app/Contents/MacOS" || true
           if grep -q "t=" ~/datapipe/work/app.log 2>/dev/null; then echo "the secret link was written to app.log"; exit 1; fi
+          # opening the running app again (a second double-click, or its Dock icon) must show the page again, not do nothing
+          open -g /Applications/datapipe.app
+          again=""
+          for i in $(seq 1 20); do
+            if grep -q "opened again" ~/datapipe/work/app.log 2>/dev/null; then again=1; break; fi
+            sleep 1
+          done
+          if [ -z "$again" ]; then
+            echo "opening the app a second time did nothing"; cat ~/datapipe/work/app.log || true
+            pkill -f "datapipe.app/Contents/MacOS" || true; exit 1
+          fi
+          echo "opening the app again shows the page again"
+          # macOS asks it to quit (what Cmd-Q, Dock > Quit and logging out do): it has to answer
           osascript -e 'tell application "datapipe" to quit' || true
           for i in $(seq 1 20); do pgrep -f "datapipe.app/Contents/MacOS" >/dev/null || break; sleep 1; done
           if pgrep -f "datapipe.app/Contents/MacOS" >/dev/null; then
-            echo "::warning::the app did not quit when macOS asked it to (Cmd-Q, Dock > Quit); it was stopped by force"
-            pkill -f "datapipe.app/Contents/MacOS" || true
-          else
-            echo "the app quit when macOS asked it to"
+            echo "the app did not quit when macOS asked it to (Cmd-Q, Dock > Quit)"; cat ~/datapipe/work/app.log || true
+            pkill -f "datapipe.app/Contents/MacOS" || true; exit 1
           fi
+          echo "the app quit when macOS asked it to"
           launchctl unsetenv DATAPIPE_NO_BROWSER
       - name: Package (macOS)
         if: runner.os == 'macOS'

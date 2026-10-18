@@ -25,7 +25,9 @@ def command(mode):
            "--collect-all", "duckdb"]
     cmd += ["--onefile"] if mode == "onefile" else ["--onedir"]
     if mode == "mac-app":
-        cmd += ["--windowed", "--osx-bundle-identifier", BUNDLE_ID, "--icon", str(ICONS / "datapipe.icns")]
+        # tkinter is loaded by name (datapipe.cli._serve_in_mac_app), so PyInstaller cannot see it: it is named here, and only for the Mac app
+        # (Tk is what answers macOS: Quit, and "opened again"); the Windows and Linux programs do not carry it.
+        cmd += ["--windowed", "--osx-bundle-identifier", BUNDLE_ID, "--icon", str(ICONS / "datapipe.icns"), "--hidden-import", "tkinter"]
     elif sys.platform == "win32":
         info = ROOT / "build" / f"version-info-{mode}.txt"
         info.parent.mkdir(parents=True, exist_ok=True)

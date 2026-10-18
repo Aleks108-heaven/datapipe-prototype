@@ -11,6 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,6 +39,20 @@ def run(cmd, **kw):
     subprocess.check_call([str(c) for c in cmd], **kw)
 
 
+def run_again_if_busy(cmd, attempts=6):
+    """hdiutil sometimes answers "Resource busy" right after files were written (Spotlight or a virus scan is still looking at them); a few
+    seconds later the same command works."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return run(cmd)
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise
+            print(f"hdiutil failed (attempt {attempt} of {attempts}); trying again in {5 * attempt} seconds", flush=True)
+            subprocess.call(["sync"])
+            time.sleep(5 * attempt)
+
+
 def main():
     if sys.platform != "darwin":
         sys.exit("the Mac app can only be built on a Mac")
@@ -59,8 +74,8 @@ def main():
     dmg = ROOT / "dist" / f"datapipe-macos-{arch}.dmg"
     if dmg.exists():
         dmg.unlink()
-    run(["hdiutil", "create", "-volname", "datapipe", "-srcfolder", staging, "-ov", "-format", "UDZO", "-fs", "HFS+", dmg])
-    run(["hdiutil", "verify", dmg])
+    run_again_if_busy(["hdiutil", "create", "-volname", "datapipe", "-srcfolder", staging, "-ov", "-format", "UDZO", "-fs", "HFS+", dmg])
+    run_again_if_busy(["hdiutil", "verify", dmg])
     print(f"\nDisk image: {dmg}")
     return 0
 
