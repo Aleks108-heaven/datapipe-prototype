@@ -1,23 +1,15 @@
 """Build the Windows installer: python packaging/build_installer.py        Output: dist/datapipe-setup-<version>.exe
 
-Needs Inno Setup 6 (winget install JRSoftware.InnoSetup) and the standalone program, which this builds first when
-dist/datapipe.exe is missing (or when --rebuild is given): python -m pip install . pyinstaller"""
+Needs Inno Setup 6 (winget install JRSoftware.InnoSetup) and the program as a folder, which this builds first when dist/onedir/datapipe is
+missing (or when --rebuild is given): python -m pip install . pyinstaller"""
 import os
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def version():
-    text = (ROOT / "datapipe" / "__init__.py").read_text(encoding="utf-8")
-    m = re.search(r'^__version__\s*=\s*"(\d+\.\d+\.\d+)"', text, re.M)
-    if not m:
-        sys.exit('datapipe/__init__.py has no __version__ = "x.y.z"')
-    return m.group(1)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _release import ROOT, version      # noqa: E402
 
 
 def find_iscc():
@@ -39,9 +31,9 @@ def main():
     iscc = find_iscc()
     if not iscc:
         sys.exit("Inno Setup 6 was not found. Install it:  winget install JRSoftware.InnoSetup")
-    exe = ROOT / "dist" / "datapipe.exe"
+    exe = ROOT / "dist" / "onedir" / "datapipe" / "datapipe.exe"
     if "--rebuild" in sys.argv or not exe.is_file():
-        code = subprocess.call([sys.executable, str(ROOT / "packaging" / "build.py")], cwd=ROOT)
+        code = subprocess.call([sys.executable, str(ROOT / "packaging" / "build.py"), "--onedir"], cwd=ROOT)
         if code:
             return code
     ver = version()
