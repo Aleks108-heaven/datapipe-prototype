@@ -543,6 +543,21 @@ SERVER = {
         "у файлі понад {0} рядків × {1} стовпців, для яких потрібно приблизно {2} ГБ пам’яті; політика дозволяє {3} ГБ (збільште ліміт параметром --max-memory-gb, якщо на комп’ютері вистачає пам’яті, або розділіть файл)",
     "file contains NUL bytes (binary or UTF-16/32 data); convert to UTF-8 first": "файл містить NUL-байти (двійкові дані або UTF-16/32); спершу перетворіть його на UTF-8",
     "file is not valid in the expected encoding (default UTF-8); pass --encoding explicitly": "файл не є коректним в очікуваному кодуванні (типово UTF-8); вкажіть --encoding явно",
+    "this file is UTF-16 or UTF-32 text (for example Excel's Unicode Text); save it as UTF-8 first (in Excel: Save As, CSV UTF-8)":
+        "цей файл — текст у UTF-16 або UTF-32 (наприклад, «Текст Unicode» з Excel); спершу збережіть його в UTF-8 (в Excel: «Зберегти як», CSV UTF-8)",
+    "this is a compressed archive, not a text file; unpack it first, then choose the unpacked file":
+        "це стиснений архів, а не текстовий файл; спершу розпакуйте його, а потім виберіть розпакований файл",
+    "this is a gzip-compressed file, not a text file; unpack it first (for example gunzip data.csv.gz), then choose the unpacked file":
+        "це файл, стиснений gzip, а не текстовий файл; спершу розпакуйте його (наприклад, gunzip data.csv.gz), а потім виберіть розпакований файл",
+    "this is a ZIP-based file (an Excel .xlsx, a Word document or a ZIP archive), not a text file; in Excel use Save As, CSV UTF-8, and unpack a ZIP archive first":
+        "це файл на основі ZIP (Excel .xlsx, документ Word або ZIP-архів), а не текстовий файл; в Excel виберіть «Зберегти як», CSV UTF-8, а ZIP-архів спершу розпакуйте",
+    "this is an old Excel or Word file (.xls, .doc), not a text file; in Excel use Save As, CSV UTF-8":
+        "це старий файл Excel або Word (.xls, .doc), а не текстовий файл; в Excel виберіть «Зберегти як», CSV UTF-8",
+    "this is a SQLite database file, not an SQL text dump; make a dump with: sqlite3 your.db .dump > dump.sql, and choose that":
+        "це файл бази даних SQLite, а не текстовий SQL-дамп; створіть дамп командою: sqlite3 your.db .dump > dump.sql, і виберіть його",
+    "this is an image, not a table of data": "це зображення, а не таблиця з даними",
+    "this is a PDF document, not a table of data; export the table to CSV first": "це документ PDF, а не таблиця з даними; спершу експортуйте таблицю в CSV",
+    "this is a Parquet file, which datapipe does not read yet; export it to CSV first": "це файл Parquet, який datapipe поки не читає; спершу експортуйте його в CSV",
     "input is not a regular file: {0}": "вхід не є звичайним файлом: {0}",
     "cannot detect format from extension or content; pass --format": "не вдалося визначити формат за розширенням чи вмістом; вкажіть --format",
     "header contains an empty column name": "заголовок містить порожню назву стовпця",

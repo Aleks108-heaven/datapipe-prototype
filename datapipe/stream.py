@@ -27,7 +27,7 @@ import duckdb
 
 from .analyze import MEMORY_LIMIT, PyStats, _sql_literal, analyze_loaded, append_rows, create_table, engine_columns, lock_engine
 from .errors import DataPipeError, IngestError
-from .ingest import ENCODING_MESSAGE, NUL_MESSAGE, ScanInfo, check_header, sniff_delimiter, trimmed_warning
+from .ingest import ENCODING_MESSAGE, NUL_MESSAGE, ScanInfo, binary_kind, check_header, sniff_delimiter, trimmed_warning
 from .outputs import clean_cell, file_sha256, write_quarantine_files
 from .schema import ColumnInferrer, schema_from_inferrers
 from .validate import MASK, Issue, Quarantined, Validated, duplicate_issue, validate_row
@@ -53,7 +53,12 @@ class _HashingRaw(io.RawIOBase):
         n = self._fh.readinto(buffer) or 0
         if n:
             data = bytes(memoryview(buffer)[:n])
-            if b"\x00" in data:
+            has_nul = b"\x00" in data
+            if self.bytes == 0:                          # the first block: name a spreadsheet, archive or UTF-16 file for what it is
+                kind = binary_kind(data[:16], has_nul)
+                if kind:
+                    raise IngestError(kind)
+            if has_nul:
                 raise IngestError(NUL_MESSAGE)
             self.sha.update(data)
             self.bytes += n

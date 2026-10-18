@@ -81,7 +81,11 @@ def read_source(path, *, max_bytes, fmt=None, encoding=None, delimiter=None,
     if size == 0:
         raise IngestError("file is empty")
     data = path.read_bytes()
-    if b"\x00" in data:
+    has_nul = b"\x00" in data
+    kind = binary_kind(data[:16], has_nul)
+    if kind:
+        raise IngestError(kind)
+    if has_nul:
         raise IngestError(NUL_MESSAGE)
     text = _decode(data, encoding)
     fmt = fmt or detect_format(path, text)
@@ -116,6 +120,40 @@ def detect_format(path, text):
 
 NUL_MESSAGE = "file contains NUL bytes (binary or UTF-16/32 data); convert to UTF-8 first"
 ENCODING_MESSAGE = "file is not valid in the expected encoding (default UTF-8); pass --encoding explicitly"
+
+# What a file that is not text really is, from its first bytes. "NUL bytes" tells nobody what to do; "this is an Excel file" does.
+# Only used for a file that is refused anyway, so it can never reject a file that would have been read.
+_UTF16_32 = "this file is UTF-16 or UTF-32 text (for example Excel's Unicode Text); save it as UTF-8 first (in Excel: Save As, CSV UTF-8)"
+_COMPRESSED = "this is a compressed archive, not a text file; unpack it first, then choose the unpacked file"
+_SIGNATURES = (
+    (b"\xff\xfe\x00\x00", _UTF16_32), (b"\x00\x00\xfe\xff", _UTF16_32), (b"\xff\xfe", _UTF16_32), (b"\xfe\xff", _UTF16_32),
+    (b"\x1f\x8b", "this is a gzip-compressed file, not a text file; unpack it first (for example gunzip data.csv.gz), then choose the unpacked file"),
+    (b"PK\x03\x04", "this is a ZIP-based file (an Excel .xlsx, a Word document or a ZIP archive), not a text file; "
+                    "in Excel use Save As, CSV UTF-8, and unpack a ZIP archive first"),
+    (b"PK\x05\x06", _COMPRESSED), (b"\xfd7zXZ\x00", _COMPRESSED), (b"\x28\xb5\x2f\xfd", _COMPRESSED), (b"7z\xbc\xaf\x27\x1c", _COMPRESSED),
+    (b"Rar!\x1a\x07", _COMPRESSED),
+    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", "this is an old Excel or Word file (.xls, .doc), not a text file; in Excel use Save As, CSV UTF-8"),
+    (b"SQLite format 3\x00", "this is a SQLite database file, not an SQL text dump; make a dump with: sqlite3 your.db .dump > dump.sql, and choose that"),
+    (b"\x89PNG", "this is an image, not a table of data"), (b"\xff\xd8\xff", "this is an image, not a table of data"),
+)
+
+
+def binary_kind(head, has_nul):
+    """The sentence that names what a non-text file is, from its first bytes (None when it is not recognised). Signatures that are plain
+    letters (a PDF, a Parquet file, bzip2) could also begin a real text file, so they count only when the file holds NUL bytes."""
+    for magic, message in _SIGNATURES:
+        if head.startswith(magic):
+            return message
+    if has_nul:
+        if head.startswith(b"%PDF-"):
+            return "this is a PDF document, not a table of data; export the table to CSV first"
+        if head.startswith(b"PAR1"):
+            return "this is a Parquet file, which datapipe does not read yet; export it to CSV first"
+        if head.startswith(b"BZh") and head[3:4].isdigit():
+            return _COMPRESSED
+        if head.startswith(b"GIF8"):
+            return "this is an image, not a table of data"
+    return None
 
 
 def _decode(data, encoding):
