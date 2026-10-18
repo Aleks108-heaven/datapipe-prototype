@@ -1,8 +1,16 @@
 name: build standalone program
 
-# Builds a single-file program that needs no Python, for Windows, macOS (Apple silicon) and Linux, and smoke-tests it.
+# Builds the program that needs no Python, on the system it is for, and tests what a person actually gets:
+#   Windows  datapipe-windows-setup.exe  installer for all users, into Program Files (installed, run, upgraded from an older per-user copy, uninstalled)
+#            datapipe-windows.exe        the same program as one file, nothing installed
+#   macOS    datapipe-macos-arm64.dmg    the app for Apple silicon Macs (M1 and later)
+#            datapipe-macos-x86_64.dmg   the app for Intel Macs
+#   Linux    datapipe-linux-x86_64.tar.gz
 # Run it by hand (Actions tab > "build standalone program" > Run workflow) to get the files as downloadable artifacts.
-# Pushing a tag such as v0.1.0 also publishes them as a GitHub Release, with a SHA256SUMS.txt to check a download against.
+# Pushing a tag such as v0.2.0 also publishes them as a GitHub Release, with a SHA256SUMS.txt to check a download against.
+#
+# Nothing is code-signed: that needs a certificate (Windows) or an Apple Developer ID (macOS) that somebody pays for. Windows then shows "Unknown
+# publisher" and macOS asks once before the first start; docs/INSTALL.md says what to expect.
 #
 # Supply chain: every action is pinned to a commit (Dependabot proposes updates), and everything pip installs comes from
 # requirements/build.txt, which records the SHA-256 of every file, so a replaced upload is refused. The pip cache is not used here:
@@ -17,21 +25,20 @@ permissions:
 
 jobs:
   build:
-    name: build (${{ matrix.os }})
+    name: build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            built: dist/datapipe.exe
-            asset: datapipe-windows.exe
-          - os: macos-latest
-            built: dist/datapipe
-            asset: datapipe-macos-arm64.tar.gz
-          - os: ubuntu-latest
-            built: dist/datapipe
-            asset: datapipe-linux-x86_64.tar.gz
+          - name: windows
+            os: windows-latest
+          - name: macos-arm64
+            os: macos-latest            # Apple silicon
+          - name: macos-x86_64
+            os: macos-15-intel          # Intel
+          - name: linux
+            os: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
@@ -43,56 +50,169 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements/build.txt
           python -m pip install --no-deps --no-build-isolation .
-      - name: Build
+
+      # ------------------------------------------------------------------ Linux
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
         run: python packaging/build.py
-      - name: Smoke test the built program (no Python involved)
+      - name: Smoke test the built program (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -e
+          ./dist/datapipe policies
+          ./dist/datapipe sample smoke.csv --mb 1
+          ./dist/datapipe --workdir smoke-work run smoke.csv --policy low --schema examples/schema_buyers.json --analysis examples/analysis_buyers.json --actor ci
+          test -s smoke-work/runs/*/clean.csv
+          python packaging/smoke_app.py ./dist/datapipe
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p out
+          tar -czf out/datapipe-linux-x86_64.tar.gz -C dist datapipe        # keeps the executable bit
+
+      # ------------------------------------------------------------------ Windows
+      - name: Build the single-file program (Windows)
+        if: runner.os == 'Windows'
+        run: python packaging/build.py
+      - name: Smoke test the single-file program (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           set -e
-          ./${{ matrix.built }} policies
-          ./${{ matrix.built }} sample smoke.csv --mb 1
-          ./${{ matrix.built }} --workdir smoke-work run smoke.csv --policy low --schema examples/schema_buyers.json --analysis examples/analysis_buyers.json --actor ci
+          ./dist/datapipe.exe policies
+          ./dist/datapipe.exe sample smoke.csv --mb 1
+          ./dist/datapipe.exe --workdir smoke-work run smoke.csv --policy low --schema examples/schema_buyers.json --analysis examples/analysis_buyers.json --actor ci
           test -s smoke-work/runs/*/clean.csv
-      - name: Build the Windows installer and test it (install, run, uninstall)
+          python packaging/smoke_app.py ./dist/datapipe.exe
+      - name: Build the Windows installer (the program as a folder, wrapped by Inno Setup 6, which the runner has)
+        if: runner.os == 'Windows'
+        run: |
+          python packaging/build_installer.py
+          if ($LASTEXITCODE) { throw "installer build failed" }
+      - name: Test the installer (an earlier per-user copy, the install into Program Files, the program there, uninstall)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          python packaging/build_installer.py        # Inno Setup 6 is preinstalled on the Windows runner
-          if ($LASTEXITCODE) { throw "installer build failed" }
+          $ErrorActionPreference = "Stop"
           $setup = (Get-Item dist/datapipe-setup-*.exe).FullName
-          $dir = Join-Path $env:RUNNER_TEMP "datapipe-installed"
-          $p = Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$dir`"" -Wait -PassThru
-          if ($p.ExitCode) { throw "install failed: $($p.ExitCode)" }
-          & "$dir\datapipe.exe" policies | Out-Null
-          if ($LASTEXITCODE) { throw "the installed program does not run" }
-          $un = Get-Item "$dir\unins*.exe" | Select-Object -First 1
-          Start-Process $un.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
-          if (Test-Path "$dir\datapipe.exe") { throw "uninstall left the program behind" }
-      - name: Package
+          $key = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{7EBB069F-1951-4BBD-B2F4-5CC43237849C}_is1'
+          function Install-Datapipe($flags) {
+            $p = Start-Process $setup -ArgumentList (@("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") + $flags) -Wait -PassThru
+            if ($p.ExitCode) { throw "setup failed: $($p.ExitCode)" }
+          }
+          function Wait-Gone($path) { for ($i = 0; $i -lt 40 -and (Test-Path $path); $i++) { Start-Sleep -Milliseconds 500 } }
+
+          # 1. what an earlier version left: a copy installed for the current user only
+          Install-Datapipe @("/CURRENTUSER")
+          $userDir = Join-Path $env:LOCALAPPDATA "Programs\datapipe"
+          if (-not (Test-Path "$userDir\datapipe.exe")) { throw "the per-user copy was not installed" }
+          if (-not (Test-Path "HKCU:\$key")) { throw "the per-user copy did not register itself" }
+
+          # 2. the normal installation: for all users, into Program Files
+          Install-Datapipe @()
+          $pf = Join-Path $env:ProgramFiles "datapipe"
+          if (-not (Test-Path "$pf\datapipe.exe")) { throw "datapipe.exe is not in $pf" }
+          if (-not (Test-Path "HKLM:\$key")) { throw "the all-users installation did not register itself for all users" }
+          if (Test-Path "HKCU:\$key") { throw "the per-user copy was not replaced: it is still registered" }
+          if (Test-Path "$userDir\datapipe.exe") { throw "the per-user copy was left behind in $userDir" }
+          $menu = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\datapipe.lnk"
+          if (-not (Test-Path $menu)) { throw "no Start menu entry for all users" }
+          if (Test-Path (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\datapipe.lnk")) { throw "a per-user Start menu entry was left behind" }
+
+          # Program Files protects it: ordinary users may read and run it, and nothing more
+          $writeBits = 2 -bor 4 -bor 16 -bor 64 -bor 256 -bor 0x10000 -bor 0x40000 -bor 0x80000      # write data, append, write attributes, delete, change permissions, take ownership
+          $loose = @()
+          foreach ($item in @("$pf", "$pf\datapipe.exe", "$pf\_internal")) {
+            foreach ($rule in (Get-Acl $item).Access) {
+              if ($rule.AccessControlType -eq "Allow" -and $rule.IdentityReference.Value -match '^(BUILTIN\\Users|NT AUTHORITY\\Authenticated Users|Everyone)$' -and (([int]$rule.FileSystemRights -band $writeBits) -ne 0)) {
+                $loose += "$item : $($rule.IdentityReference) $($rule.FileSystemRights)"
+              }
+            }
+          }
+          if ($loose) { $loose; throw "ordinary users can change what is installed" }
+          icacls "$pf\datapipe.exe"
+          Get-AuthenticodeSignature "$pf\datapipe.exe", $setup | Format-Table Path, Status -AutoSize
+          (Get-Item "$pf\datapipe.exe").VersionInfo | Format-List CompanyName, ProductName, ProductVersion, FileDescription
+
+          python packaging/smoke_app.py "$pf\datapipe.exe" --unchanged $pf
+          if ($LASTEXITCODE) { throw "the installed program failed its smoke test" }
+
+          # 3. uninstall
+          $un = Join-Path $pf "unins000.exe"
+          Start-Process $un -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          Wait-Gone "$pf\datapipe.exe"
+          if (Test-Path "$pf\datapipe.exe") { throw "uninstall left the program behind" }
+          if (Test-Path "HKLM:\$key") { throw "uninstall left its registration behind" }
+          if (Test-Path $menu) { throw "uninstall left the Start menu entry behind" }
+      - name: Package (Windows)
         shell: bash
+        if: runner.os == 'Windows'
         run: |
           mkdir -p out
-          case "${{ matrix.asset }}" in
-            *.tar.gz) tar -czf "out/${{ matrix.asset }}" -C dist datapipe ;;      # keeps the executable bit
-            *) cp "${{ matrix.built }}" "out/${{ matrix.asset }}" ;;
-          esac
-          ls -l out
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: ${{ matrix.asset }}
-          path: out/${{ matrix.asset }}
-          if-no-files-found: error
-      - name: Package the Windows installer
-        if: runner.os == 'Windows'
-        shell: bash
+          cp dist/datapipe.exe out/datapipe-windows.exe
+          cp dist/datapipe-setup-*.exe out/datapipe-windows-setup.exe
+
+      # ------------------------------------------------------------------ macOS
+      - name: Build the Mac app and its disk image
+        if: runner.os == 'macOS'
         run: |
-          mkdir -p installer
-          cp dist/datapipe-setup-*.exe installer/datapipe-windows-setup.exe
+          sw_vers
+          uname -m
+          python packaging/build_mac.py
+          ls -l dist/*.dmg
+      - name: Test the disk image the way a person gets it (signature, program from the image, then started by macOS itself)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          dmg=$(ls dist/datapipe-macos-*.dmg)
+          mnt=$(mktemp -d)
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
+          ls -la "$mnt"
+          test -L "$mnt/Applications"
+          codesign --verify --deep --strict --verbose=2 "$mnt/datapipe.app"
+          codesign -dv "$mnt/datapipe.app" 2>&1 | head -12 || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$mnt/datapipe.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$mnt/datapipe.app/Contents/Info.plist"
+          file "$mnt/datapipe.app/Contents/MacOS/datapipe"
+          # the program inside the (read-only) image: command line, then a whole run, then Stop
+          "$mnt/datapipe.app/Contents/MacOS/datapipe" policies
+          python packaging/smoke_app.py "$mnt/datapipe.app/Contents/MacOS/datapipe" --unchanged "$mnt/datapipe.app"
+          # the app copied to Applications and started the way a double-click starts it
+          ditto "$mnt/datapipe.app" /Applications/datapipe.app
+          hdiutil detach "$mnt"
+          launchctl setenv DATAPIPE_NO_BROWSER 1          # the runner must not open a browser
+          open -n /Applications/datapipe.app
+          up=""
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/ || true)
+            if [ "$code" = "401" ]; then up=1; break; fi
+            sleep 1
+          done
+          if [ -z "$up" ]; then
+            echo "the app did not answer on port 8765 within a minute"; ls -la ~/datapipe/work || true; cat ~/datapipe/work/app.log || true; exit 1
+          fi
+          echo "the app started by macOS answers (401 without its secret link)"
+          pgrep -fl "datapipe.app/Contents/MacOS" || true
+          if grep -q "t=" ~/datapipe/work/app.log 2>/dev/null; then echo "the secret link was written to app.log"; exit 1; fi
+          osascript -e 'tell application "datapipe" to quit' || true
+          for i in $(seq 1 20); do pgrep -f "datapipe.app/Contents/MacOS" >/dev/null || break; sleep 1; done
+          if pgrep -f "datapipe.app/Contents/MacOS" >/dev/null; then
+            echo "::warning::the app did not quit when macOS asked it to (Cmd-Q, Dock > Quit); it was stopped by force"
+            pkill -f "datapipe.app/Contents/MacOS" || true
+          else
+            echo "the app quit when macOS asked it to"
+          fi
+          launchctl unsetenv DATAPIPE_NO_BROWSER
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p out
+          cp dist/datapipe-macos-*.dmg out/
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        if: runner.os == 'Windows'
         with:
-          name: datapipe-windows-setup.exe
-          path: installer/datapipe-windows-setup.exe
+          name: datapipe-${{ matrix.name }}
+          path: out/*
           if-no-files-found: error
 
   release:
@@ -103,6 +223,9 @@ jobs:
     permissions:
       contents: write           # only this job, and only for tag builds, may create the release
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: assets
@@ -114,4 +237,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-        run: gh release create "$TAG" assets/* --repo "$REPO" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" assets/* --repo "$REPO" --title "$TAG" --notes-file .github/release-notes.md --generate-notes
