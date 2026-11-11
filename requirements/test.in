@@ -2,4 +2,4 @@
 duckdb>=2.0.0,<3
 pytest
 playwright
-setuptools>=64            # the project is installed with --no-build-isolation, so the build tool must be in the lock too
+setuptools>=84.2.1            # the project is installed with --no-build-isolation, so the build tool must be in the lock too
